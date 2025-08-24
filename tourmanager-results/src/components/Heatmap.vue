@@ -70,19 +70,23 @@ function drawHeatmap() {
   const containerWidth = container.value.clientWidth
   const svgWidth = containerWidth
 
-    // Bepaal stages waarvoor data beschikbaar is
-const availableStages = new Set(store.rankings.map(d => d.stage))
+  // Bepaal stages waarvoor data beschikbaar is
+  const availableStages = new Set(store.rankings.map(d => d.stage))
 
-// Max stage uit de data
-const maxAvailableStage = d3.max(store.rankings, d => d.stage) || 1
+  // Max stage uit de data
+  const maxAvailableStage = d3.max(store.rankings, d => d.stage) || 1
 
-// Stage 1 t/m 21
-let stages = Array.from({ length: 21 }, (_, i) => i + 1)
+  // Stage 1 t/m 21
+  let stages = Array.from({ length: 21 }, (_, i) => i + 1)
 
-// Responsive filter: op kleine schermen laatste 5 beschikbare
-if (containerWidth < 768) {
-  stages = stages.filter(s => s > maxAvailableStage - 5 && s <= maxAvailableStage)
-}
+  // Responsive filter: op kleine schermen laatste 5 beschikbare
+  if (containerWidth < 768) {
+    if (maxAvailableStage >= 5) {
+      stages = stages.filter(s => s > maxAvailableStage - 5 && s <= maxAvailableStage)
+    } else {
+      stages = stages.filter(s => s > maxAvailableStage - 5 && s <= 5)
+    }
+  }
 
 
   const svgHeight = riders.length * cellSize + margin.top + margin.bottom
@@ -94,12 +98,12 @@ if (containerWidth < 768) {
 
 
 
-const extent = mode.value === 'rank' ? [maxVal, minVal] : [minVal, maxVal]
+  const extent = mode.value === 'rank' ? [maxVal, minVal] : [minVal, maxVal]
 
-const colorScale = d3.scaleLinear()
-  .domain([extent[0], (extent[0] + extent[1]) / 2, extent[1]]) // min, midpoint, max
-  .range(["#52B4C7", "#B7E7F0", "orange"])
-  .interpolate(d3.interpolateRgb)
+  const colorScale = d3.scaleLinear()
+    .domain([extent[0], (extent[0] + extent[1]) / 2, extent[1]]) // min, midpoint, max
+    .range(["#52B4C7", "#B7E7F0", "orange"])
+    .interpolate(d3.interpolateRgb)
 
 
   // Maak data array
@@ -127,63 +131,63 @@ const colorScale = d3.scaleLinear()
   svgEl.selectAll('*').remove()
 
   // Cells tekenen
-svgEl.selectAll('rect')
-  .data(data)
-  .enter()
-  .append('rect')
-  .attr('class', 'cell')
-  .attr('x', d => margin.left + d.col * cellWidth)
-  .attr('y', d => margin.top + d.row * cellSize)
-  .attr('width', cellWidth)
-  .attr('height', cellSize)
-  .attr('fill', '#fff') // startkleur of neutraal
-  .transition()
-  .duration(800) // duur van de animatie
-  .delay(d => (d.row + d.col) * 25)
-  .attr('fill', d => d.value === null ? '#ccc' : colorScale(d.value))
+  svgEl.selectAll('rect')
+    .data(data)
+    .enter()
+    .append('rect')
+    .attr('class', 'cell')
+    .attr('x', d => margin.left + d.col * cellWidth)
+    .attr('y', d => margin.top + d.row * cellSize)
+    .attr('width', cellWidth)
+    .attr('height', cellSize)
+    .attr('fill', '#fff') // startkleur of neutraal
+    .transition()
+    .duration(800) // duur van de animatie
+    .delay(d => (d.row + d.col) * 25)
+    .attr('fill', d => d.value === null ? '#ccc' : colorScale(d.value))
 
 
   // Waarden als labels op cell
-svgEl.selectAll('text.cell-value')
-  .data(data)
-  .enter()
-  .append('text')
-  .attr('class', 'cell-value')
-  .attr('x', d => margin.left + d.col * cellWidth + cellWidth / 2)
-  .attr('y', d => margin.top + d.row * cellSize + cellSize / 2)
-  .attr('text-anchor', 'middle')
-  .attr('alignment-baseline', 'middle')
-  .style('opacity', 0)
-  .text(d => d.value === null ? '' : d.value)
-  .transition()
-  .duration(800)
-  .delay(d => (d.row + d.col) * 25)
-  .style('opacity', 1)
+  svgEl.selectAll('text.cell-value')
+    .data(data)
+    .enter()
+    .append('text')
+    .attr('class', 'cell-value')
+    .attr('x', d => margin.left + d.col * cellWidth + cellWidth / 2)
+    .attr('y', d => margin.top + d.row * cellSize + cellSize / 2)
+    .attr('text-anchor', 'middle')
+    .attr('alignment-baseline', 'middle')
+    .style('opacity', 0)
+    .text(d => d.value === null ? '' : d.value)
+    .transition()
+    .duration(800)
+    .delay(d => (d.row + d.col) * 25)
+    .style('opacity', 1)
 
-const interval = 5
-const yTicks = [1, ...Array.from({ length: Math.floor((riders.length)/interval) }, (_, i) => (i+1)*interval)]
+  const interval = 5
+  const yTicks = [1, ...Array.from({ length: Math.floor((riders.length) / interval) }, (_, i) => (i + 1) * interval)]
 
 
-svgEl.selectAll('line.y-tick')
-  .data(yTicks)
-  .enter()
-  .append('line')
-  .attr('class', 'y-tick')
-  .attr('x1', 0)
-  .attr('x2', '2rem')
-  .attr('y1', d => margin.top + (d - 1) * cellSize + 3)
-  .attr('y2', d => margin.top + (d - 1) * cellSize + 3)
+  svgEl.selectAll('line.y-tick')
+    .data(yTicks)
+    .enter()
+    .append('line')
+    .attr('class', 'y-tick')
+    .attr('x1', 0)
+    .attr('x2', '2rem')
+    .attr('y1', d => margin.top + (d - 1) * cellSize + 3)
+    .attr('y2', d => margin.top + (d - 1) * cellSize + 3)
 
-svgEl.selectAll('text.y-tick-label')
-  .data(yTicks)
-  .enter()
-  .append('text')
-  .attr('class', 'y-tick-label')
-  .attr('x', 0)
-  .attr('y', d => margin.top + (d - 1) * cellSize + cellSize / 2)
-  .attr('text-anchor', 'start')
-  .attr('alignment-baseline', 'middle')
-  .text(d => `#${d}`)
+  svgEl.selectAll('text.y-tick-label')
+    .data(yTicks)
+    .enter()
+    .append('text')
+    .attr('class', 'y-tick-label')
+    .attr('x', 0)
+    .attr('y', d => margin.top + (d - 1) * cellSize + cellSize / 2)
+    .attr('text-anchor', 'start')
+    .attr('alignment-baseline', 'middle')
+    .text(d => `#${d}`)
 
 
   // Y-as labels
@@ -197,37 +201,37 @@ svgEl.selectAll('text.y-tick-label')
     .attr('alignment-baseline', 'middle')
     .text(d => d)
 
-const bgWidth = cellWidth * 0.8
-const bgHeight = cellSize * 0.8
-const xOffset = (cellWidth - bgWidth) / 2
-const yOffset = margin.top - cellSize + (cellSize - bgHeight) / 2
+  const bgWidth = cellWidth * 0.8
+  const bgHeight = cellSize * 0.8
+  const xOffset = (cellWidth - bgWidth) / 2
+  const yOffset = margin.top - cellSize + (cellSize - bgHeight) / 2
 
-svgEl.selectAll('rect.stage-bg')
-  .data(stages)
-  .enter()
-  .append('rect')
-  .attr('class', d => availableStages.has(d) ? 'stage-bg stage-bg-selected' : 'stage bg')
-  .attr('x', (_, i) => margin.left + i * cellWidth + xOffset)
-  .attr('y', yOffset)
-  .attr('width', bgWidth)
-  .attr('height', bgHeight)
-  .attr('rx', 3)   // horizontale border-radius
-  .attr('ry', 5)   // verticale border-radius
-  .attr('fill', d => availableStages.has(d) ? 'black' : 'none')
-  .lower()
+  svgEl.selectAll('rect.stage-bg')
+    .data(stages)
+    .enter()
+    .append('rect')
+    .attr('class', d => availableStages.has(d) ? 'stage-bg stage-bg-selected' : 'stage bg')
+    .attr('x', (_, i) => margin.left + i * cellWidth + xOffset)
+    .attr('y', yOffset)
+    .attr('width', bgWidth)
+    .attr('height', bgHeight)
+    .attr('rx', 3)   // horizontale border-radius
+    .attr('ry', 5)   // verticale border-radius
+    .attr('fill', d => availableStages.has(d) ? 'black' : 'none')
+    .lower()
 
-// X-as labels
-svgEl.selectAll('text.stage')
-  .data(stages)
-  .enter()
-  .append('text')
+  // X-as labels
+  svgEl.selectAll('text.stage')
+    .data(stages)
+    .enter()
+    .append('text')
     .attr('class', 'stage-value')
-  .attr('x', (_, i) => margin.left + i * cellWidth + cellWidth / 2)
-  .attr('y', margin.top - 14)
-  .attr('text-anchor', 'middle')
-  .attr('alignment-baseline', 'middle')
-  .attr('fill', d => availableStages.has(d) ? 'white' : 'black')
-  .text(d => d)
+    .attr('x', (_, i) => margin.left + i * cellWidth + cellWidth / 2)
+    .attr('y', margin.top - 14)
+    .attr('text-anchor', 'middle')
+    .attr('alignment-baseline', 'middle')
+    .attr('fill', d => availableStages.has(d) ? 'white' : 'black')
+    .text(d => d)
 
 
 }
@@ -271,5 +275,4 @@ svgEl.selectAll('text.stage')
   rx: 3;
   ry: 3;
 }
-
 </style>
