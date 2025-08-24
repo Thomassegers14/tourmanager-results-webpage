@@ -8,6 +8,10 @@
     <h2 class="section-title">Ranking</h2>
     <Heatmap />
   </section>
+  <section>
+    <h2 class="section-title">Analyse</h2>
+    <p>Coming soon!</p>
+  </section>
   </main>
 </template>
 

@@ -168,7 +168,7 @@ function drawHeatmap() {
   const yTicks = [1, ...Array.from({ length: Math.floor((riders.length) / interval) }, (_, i) => (i + 1) * interval)]
 
 
-  svgEl.selectAll('line.y-tick')
+  svgEl.selectAll('.y-tick')
     .data(yTicks)
     .enter()
     .append('line')
@@ -177,6 +177,7 @@ function drawHeatmap() {
     .attr('x2', '2rem')
     .attr('y1', d => margin.top + (d - 1) * cellSize + 3)
     .attr('y2', d => margin.top + (d - 1) * cellSize + 3)
+    .attr('stroke-width', 1)
 
   svgEl.selectAll('text.y-tick-label')
     .data(yTicks)
