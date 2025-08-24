@@ -18,7 +18,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, watch, nextTick, computed } from 'vue'
+import { ref, onMounted, onBeforeUnmount, watch, nextTick, computed } from 'vue'
 import { useRankingStore } from '@/stores/rankingStore'
 import * as d3 from 'd3'
 
@@ -34,18 +34,29 @@ const cellSize = 30
 // Check of data beschikbaar is
 const hasData = computed(() => store.rankings?.length > 0)
 
-// API ophalen
 onMounted(async () => {
   await store.fetchRankings()
   if (hasData.value) drawHeatmap()
+
+  // ✅ Resize listener toevoegen
+  window.addEventListener('resize', handleResize)
 })
 
-// Redraw bij verandering van mode of store.rankings
+onBeforeUnmount(() => {
+  // ✅ Event listener opruimen
+  window.removeEventListener('resize', handleResize)
+})
+
 watch([() => store.rankings, mode], async () => {
   if (!hasData.value) return
   await nextTick()
   drawHeatmap()
 })
+
+function handleResize() {
+  if (hasData.value) drawHeatmap()
+}
+
 
 function drawHeatmap() {
   if (!store.rankings?.length) return
@@ -55,18 +66,33 @@ function drawHeatmap() {
     new Set(store.rankings.map(r => `${r.voornaam} ${r.achternaam}`))
   )
 
-  // Stage 1 t/m 21
-  const stages = Array.from({ length: 21 }, (_, i) => i + 1)
-
   // Container breedte responsive
   const containerWidth = container.value.clientWidth
   const svgWidth = containerWidth
+
+    // Bepaal stages waarvoor data beschikbaar is
+const availableStages = new Set(store.rankings.map(d => d.stage))
+
+// Max stage uit de data
+const maxAvailableStage = d3.max(store.rankings, d => d.stage) || 1
+
+// Stage 1 t/m 21
+let stages = Array.from({ length: 21 }, (_, i) => i + 1)
+
+// Responsive filter: op kleine schermen laatste 5 beschikbare
+if (containerWidth < 768) {
+  stages = stages.filter(s => s > maxAvailableStage - 5 && s <= maxAvailableStage)
+}
+
+
   const svgHeight = riders.length * cellSize + margin.top + margin.bottom
   const cellWidth = (svgWidth - margin.left - margin.right) / stages.length
 
   const values = store.rankings.map(d => d[mode.value]).filter(v => v != null)
   const minVal = d3.min(values) || 0
   const maxVal = d3.max(values) || 1
+
+
 
 const extent = mode.value === 'rank' ? [maxVal, minVal] : [minVal, maxVal]
 
@@ -92,9 +118,6 @@ const colorScale = d3.scaleLinear()
       })
     })
   })
-
-  // Bepaal stages waarvoor data beschikbaar is
-const availableStages = new Set(store.rankings.map(d => d.stage))
 
   // SVG setup
   const svgEl = d3.select(svg.value)
