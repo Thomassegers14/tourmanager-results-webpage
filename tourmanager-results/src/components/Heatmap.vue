@@ -174,7 +174,7 @@ function drawHeatmap() {
     .append('line')
     .attr('class', 'y-tick')
     .attr('x1', 0)
-    .attr('x2', '2rem')
+    .attr('x2', 26)
     .attr('y1', d => margin.top + (d - 1) * cellSize + 3)
     .attr('y2', d => margin.top + (d - 1) * cellSize + 3)
     .attr('stroke-width', 1)
