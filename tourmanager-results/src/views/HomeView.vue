@@ -9,8 +9,8 @@
       <Heatmap />
     </section>
     <section>
-      <h2 class="section-title">Analyse</h2>
-      <p>Coming soon!</p>
+      <h2 class="section-title">Verdeling punten</h2>
+      <PointsMultiples/>
     </section>
   </main>
 </template>
@@ -18,4 +18,5 @@
 <script setup>
 import { EVENT_CONFIG } from '@/config';
 import Heatmap from '../components/Heatmap.vue'
+import PointsMultiples from '../components/PointsMultiples.vue';
 </script>
