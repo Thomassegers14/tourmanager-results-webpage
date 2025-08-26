@@ -27,8 +27,6 @@ const svg = ref(null)
 const store = useRankingStore()
 const mode = ref('rank')
 
-// Marges rondom de heatmap
-const margin = { top: 48, right: 0, bottom: 0, left: 200 }
 const cellSize = 30
 
 // Check of data beschikbaar is
@@ -70,6 +68,8 @@ function drawHeatmap() {
   const containerWidth = container.value.clientWidth
   const svgWidth = containerWidth
 
+  const margin = { top: 48, right: 0, bottom: 0, left: containerWidth > 768 ? 200 : 140 }
+
   // Bepaal stages waarvoor data beschikbaar is
   const availableStages = new Set(store.rankings.map(d => d.stage))
 
@@ -102,7 +102,7 @@ function drawHeatmap() {
 
   const colorScale = d3.scaleLinear()
     .domain([extent[0], (extent[0] + extent[1]) / 2, extent[1]]) // min, midpoint, max
-    .range(["#52B4C7", "#B7E7F0", "orange"])
+    .range(["#004C5C ", "#A7E6EC ", "orange"])
     .interpolate(d3.interpolateRgb)
 
 
@@ -140,11 +140,11 @@ function drawHeatmap() {
     .attr('y', d => margin.top + d.row * cellSize)
     .attr('width', cellWidth)
     .attr('height', cellSize)
-    .attr('fill', '#fff') // startkleur of neutraal
+    .attr('fill', 'var(--background)') // startkleur of neutraal
     .transition()
     .duration(800) // duur van de animatie
-    .delay(d => (d.row + d.col) * 25)
-    .attr('fill', d => d.value === null ? '#ccc' : colorScale(d.value))
+    .delay(d => (d.row * 12 + d.col * 24) * 1.2)
+    .attr('fill', d => d.value === null ? 'var(--secondary)' : colorScale(d.value))
 
 
   // Waarden als labels op cell
@@ -198,6 +198,7 @@ function drawHeatmap() {
     .append('text')
     .attr('x', margin.left - 10)
     .attr('y', (_, i) => margin.top + i * cellSize + cellSize / 2)
+    .attr('class', 'y-label')
     .attr('text-anchor', 'end')
     .attr('alignment-baseline', 'middle')
     .text(d => d)
@@ -253,8 +254,17 @@ function drawHeatmap() {
 
 :deep(.cell-value) {
   fill: white;
-  font-size: var(--text-xs);
+  font-size: 0.65rem;
+  letter-spacing: 0.05rem;
   font-weight: var(--font-weight-light);
+}
+
+:deep(.y-label) {
+  font-size: var(--text-xs);
+
+  @media (min-width: 768px) {
+    font-size: var(--text-base);   
+  }
 }
 
 :deep(.y-tick) {
