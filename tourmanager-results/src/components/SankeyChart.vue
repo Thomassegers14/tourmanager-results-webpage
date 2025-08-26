@@ -1,14 +1,45 @@
 <template>
+    <div class="controls">
+    <label for="hl">Highlight deelnemers</label>
+    <select id="hl" v-model="highlightedParticipants" multiple>
+      <option v-for="p in participantOptions" :key="p" :value="p">
+        {{ p }}
+      </option>
+    </select>
+    <button type="button" @click="highlightedParticipants = []">Clear</button>
+  </div>
+
   <div class="sankey" ref="chart"></div>
 </template>
 
 <script setup>
-import { ref, onMounted, watch, nextTick, onBeforeUnmount } from 'vue'
+import { ref, computed, onMounted, watch, nextTick, onBeforeUnmount } from 'vue'
 import { useRankingStore } from '@/stores/rankingStore'
 import * as d3 from 'd3'
 
 const chart = ref(null)
 const store = useRankingStore()
+
+// 🔹 nieuw: lijst met te highlighten deelnemers
+const highlightedParticipants = ref([])
+
+// 🔹 helper om namen in UI te tonen
+const fmtParticipantShort = d =>
+  `${d.voornaam ?? ''} ${((d.achternaam ?? '').trim().charAt(0) || '')}.`.trim()
+
+// 🔹 opties voor de multiselect (unieke deelnemers)
+const participantOptions = computed(() => {
+  if (!store.selections?.length) return []
+  return Array.from(new Set(store.selections.map(fmtParticipantShort))).sort(d3.ascending)
+})
+
+  function formatRiderName(fullName) {
+    const parts = fullName.trim().split(' ')
+    if (parts.length < 2) return fullName
+    const firstName = parts.pop()
+    const lastName = parts.join(' ').toLowerCase()
+    return lastName.replace(/(^|\s|-)(\p{L})/gu, (_, sep, letter) => sep + letter.toLocaleUpperCase())
+  }
 
 onMounted(async () => {
   window.addEventListener('resize', handleResize)
@@ -20,7 +51,8 @@ onBeforeUnmount(() => {
   window.removeEventListener('resize', handleResize)
 })
 
-watch(() => store.selections, async () => {
+// 🔹 voeg highlightedParticipants toe zodat een wijziging meteen rendert
+watch([() => store.selections, highlightedParticipants], async () => {
   await nextTick()
   drawChord()
 })
@@ -41,17 +73,6 @@ function drawChord() {
   const innerRadius = Math.min(width, height) * (width > 600 ? 0.4 : 0.25)
   const outerRadius = innerRadius + (width > 600 ? 9 : 3)
 
-  const fmtParticipantShort = d =>
-    `${d.voornaam ?? ''} ${((d.achternaam ?? '').trim().charAt(0) || '')}.`.trim()
-
-  function formatRiderName(fullName) {
-    const parts = fullName.trim().split(' ')
-    if (parts.length < 2) return fullName
-    const firstName = parts.pop()
-    const lastName = parts.join(' ').toLowerCase()
-    return lastName.replace(/(^|\s|-)(\p{L})/gu, (_, sep, letter) => sep + letter.toLocaleUpperCase())
-  }
-
   const participants = Array.from(new Set(data.map(d => fmtParticipantShort(d))))
   const riders = Array.from(new Set(data.map(d => formatRiderName(d.rider_name))))
 
@@ -61,9 +82,9 @@ function drawChord() {
 
   const allNodes = [...dummyBefore, ...participants, ...dummyAfter, ...riders]
   const n = allNodes.length
-  const index = new Map(allNodes.map((d,i)=>[d,i]))
+  const index = new Map(allNodes.map((d, i) => [d, i]))
 
-  const matrix = Array.from({length: n}, () => Array(n).fill(0))
+  const matrix = Array.from({ length: n }, () => Array(n).fill(0))
   data.forEach(d => {
     const p = fmtParticipantShort(d)
     const r = formatRiderName(d.rider_name)
@@ -85,73 +106,81 @@ function drawChord() {
 
   const arcGen = d3.arc().innerRadius(innerRadius).outerRadius(outerRadius)
 
-  group.append('path')
-    .filter(d => !allNodes[d.index].startsWith('gap'))
-    .attr('class', 'sankey-node')
-    .attr('d', arcGen)
+  const nodes = group.append('path')
+  .filter(d => !allNodes[d.index].startsWith('gap'))
+  .attr('d', arcGen)
+  .attr('class', d => {
+    const name = allNodes[d.index]
+    const isHighlighted = highlightedParticipants.value.includes(name)
+    return isHighlighted ? 'sankey-node sankey-node-highlighted' : 'sankey-node'
+  })
 
-  const labels = group.append('text')
-    .filter(d => !allNodes[d.index].startsWith('gap'))
-    .each(d => { d.angle = (d.startAngle + d.endAngle) / 2 })
-    .attr('dy', '.35em')
-    .attr('transform', d => `
-      rotate(${(d.angle * 180 / Math.PI - 90)})
-      translate(${outerRadius + 5})
-      ${d.angle > Math.PI ? 'rotate(180)' : ''}
-    `)
-    .attr('text-anchor', d => d.angle > Math.PI ? 'end' : 'start')
-    .attr('class', 'sankey-label')
-    .text(d => allNodes[d.index])
+const labels = group.append('text')
+  .filter(d => !allNodes[d.index].startsWith('gap'))
+  .each(d => { d.angle = (d.startAngle + d.endAngle) / 2 })
+  .attr('dy', '.35em')
+  .attr('transform', d => `
+    rotate(${(d.angle * 180 / Math.PI - 90)})
+    translate(${outerRadius + 5})
+    ${d.angle > Math.PI ? 'rotate(180)' : ''}
+  `)
+  .attr('text-anchor', d => d.angle > Math.PI ? 'end' : 'start')
+  .attr('class', d => {
+    const name = allNodes[d.index]
+    const isHighlighted = highlightedParticipants.value.includes(name)
+    return isHighlighted ? 'sankey-label sankey-label-highlighted' : 'sankey-label'
+  })
+  .text(d => allNodes[d.index])
 
-  const ribbons = svg.append('g')
-    .attr('fill-opacity', 0.7)
-    .selectAll('path')
-    .data(chord)
-    .join('path')
-    .filter(d => !allNodes[d.source.index].startsWith('gap') && !allNodes[d.target.index].startsWith('gap'))
-    .attr('class', 'sankey-link')
-    .attr('d', d3.ribbon().radius(innerRadius))
-    // Chords
-ribbons
+const ribbons = svg.append('g')
+  .attr('fill-opacity', 0.7)
+  .selectAll('path')
+  .data(chord)
+  .join('path')
   .filter(d => !allNodes[d.source.index].startsWith('gap') && !allNodes[d.target.index].startsWith('gap'))
-  .attr('d', d3.ribbon().radius(innerRadius));
-    
+  .attr('d', d3.ribbon().radius(innerRadius))
+  .attr('class', d => {
+    const s = allNodes[d.source.index]
+    const t = allNodes[d.target.index]
+    const isHighlighted = highlightedParticipants.value.includes(s) || highlightedParticipants.value.includes(t)
+    return isHighlighted ? 'sankey-link sankey-link-highlighted' : 'sankey-link'
+  })
+
+  // Chords
+  ribbons
+    .filter(d => !allNodes[d.source.index].startsWith('gap') && !allNodes[d.target.index].startsWith('gap'))
+    .attr('d', d3.ribbon().radius(innerRadius));
+
   // Hover interactiviteit
   group.on('mouseover', function (event, d) {
     const i = d.index
 
-    group.selectAll('.sankey-node')
-        .classed('sankey-node-faded', true)
+    nodes.classed('sankey-node-faded', true)
+    nodes.filter(l => l.index === i ||
+      (ribbons.data().some(r => r.source.index === i && r.target.index === l.index) ||
+        ribbons.data().some(r => r.target.index === i && r.source.index === l.index)))
+      .classed('sankey-node-highlighted', true)
 
-            group.selectAll('.sankey-node')
-            .filter(l => l.index === i || 
-                     (ribbons.data().some(r => r.source.index === i && r.target.index === l.index) ||
-                      ribbons.data().some(r => r.target.index === i && r.source.index === l.index)))
-    .classed('sankey-node-highlighted', true)
-    
     ribbons.classed('sankey-link-faded', true)
-    d3.select(this).select('path').attr('opacity', 1)
     ribbons.filter(r => r.source.index === i || r.target.index === i)
-        .classed('sankey-link-highlighted', true)
+      .classed('sankey-link-highlighted', true)
 
-  labels
-    .classed('sankey-label-faded', true)
-    
-    labels
-    .filter(l => l.index === i || 
-                     (ribbons.data().some(r => r.source.index === i && r.target.index === l.index) ||
-                      ribbons.data().some(r => r.target.index === i && r.source.index === l.index)))
-    .classed('sankey-label-highlighted', true)
+    labels.classed('sankey-label-faded', true)
+    labels.filter(l => l.index === i ||
+      (ribbons.data().some(r => r.source.index === i && r.target.index === l.index) ||
+        ribbons.data().some(r => r.target.index === i && r.source.index === l.index)))
+      .classed('sankey-label-highlighted', true)
   })
 
   group.on('mouseout', function () {
-    ribbons.classed('sankey-link-highlighted', false)
-    .classed('sankey-link-faded', false)
+    nodes.classed('sankey-node-highlighted', false)
+      .classed('sankey-node-faded', false)
 
-        group.selectAll('.sankey-node').classed('sankey-node-highlighted', false)
-    .classed('sankey-node-faded', false)
-      labels.classed('sankey-label-highlighted', false)
-        .classed('sankey-label-faded', false)
+    ribbons.classed('sankey-link-highlighted', false)
+      .classed('sankey-link-faded', false)
+
+    labels.classed('sankey-label-highlighted', false)
+      .classed('sankey-label-faded', false)
   })
 }
 
@@ -165,51 +194,56 @@ ribbons
 }
 
 :deep(.sankey-label) {
-    font-size: var(--text-xs);
-    fill: var(--primary);
-    cursor: pointer;
-    transition: fill 200ms;
+  font-size: var(--text-xs);
+  fill: var(--primary);
+  cursor: pointer;
+  transition: fill 200ms;
 }
 
 :deep(.sankey-node) {
-    fill: var(--primary);
+  fill: var(--primary);
 }
 
 :deep(.sankey-node-faded) {
-    fill: var(--secondary);
+  fill: var(--secondary);
 }
 
 :deep(.sankey-node-highlighted) {
-    fill: var(--primary);
+  fill: var(--primary);
 }
 
 :deep(.sankey-label-faded) {
-    fill: var(--secondary);
+  fill: var(--secondary);
 }
 
 :deep(.sankey-label-highlighted) {
-    font-weight: bold;
-    fill: var(--primary);
+  font-weight: bold;
+  fill: var(--primary);
 }
 
 :deep(.sankey-link) {
-    fill: var(--muted-foreground);
-    stroke: var(--muted-foreground);
-    opacity: 0.4;
-    mix-blend-mode: multiply;
-    transition: fill 200ms;
+  fill: var(--muted-foreground);
+  stroke: var(--muted-foreground);
+  opacity: 0.4;
+  mix-blend-mode: multiply;
+  transition: fill 200ms;
 }
 
 :deep(.sankey-link-faded) {
-    fill: var(--secondary);
-    stroke: var(--secondary);
-    opacity: 0.2;
+  fill: var(--secondary);
+  stroke: var(--secondary);
+  opacity: 0.2;
 }
 
 :deep(.sankey-link-highlighted) {
-    fill: #52B4C7;
-    stroke: #52B4C7;
-    opacity: 0.8;
+  fill: #52B4C7;
+  stroke: #52B4C7;
+  opacity: 0.8;
+}
+
+:deep(.sankey-link-highlighted-secondary) {
+  fill: orange;
+  stroke: orange;
+  opacity: 0.8;
 }
 </style>
-
