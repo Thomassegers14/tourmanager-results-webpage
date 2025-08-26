@@ -1,4 +1,19 @@
 <template>
+    <div class="graph-header">
+        <label class="toggle-switch">
+            <input type="checkbox" v-model="usePercent" />
+            <span class="slider"></span>
+            <span class="label-text">Gestapeld tot 100%</span>
+        </label>
+        <div class="legend">
+            <div v-for="(rider, i) in top5Riders" :key="rider" class="legend-item">
+                <span class="color-box" :style="{ backgroundColor: top5Colors[i] }"></span>
+                <span class="rider-name">{{ rider }}</span>
+            </div>
+        </div>
+    </div>
+
+
     <div class="multiples" ref="container">
         <div v-for="participant in participants" :key="participant.name" class="multiple">
             <p class="graph-title">{{ participant.name }}</p>
@@ -17,6 +32,10 @@ import { useRankingStore } from '@/stores/rankingStore'
 const store = useRankingStore()
 const container = ref(null)
 const participants = ref([])
+const usePercent = ref(false)
+
+const top5Riders = ref([])
+const top5Colors = ["#004C5C", "#1FA8C9", "#86C7CF", '#FFC466', '#FF9800'].reverse()
 
 let resizeObserver = null
 
@@ -44,7 +63,7 @@ onBeforeUnmount(() => {
     }
 })
 
-watch([() => store.selections, () => store.points], async () => {
+watch([() => store.selections, () => store.points, usePercent], async () => {
     await nextTick()
     updateParticipants()
     drawCharts()
@@ -96,13 +115,11 @@ function drawCharts() {
             riderTotals[p.rider_name] = (riderTotals[p.rider_name] || 0) + p.cumulative_points
         })
 
-    // Sorteer en neem top 5
-    const top5Riders = Object.entries(riderTotals)
+    // Na berekening van top5:
+    top5Riders.value = Object.entries(riderTotals)
         .sort((a, b) => b[1] - a[1])
         .slice(0, 5)
         .map(d => d[0])
-
-    const top5Colors = ["#FFA500", "#E2BF60", "#B7E7F0", '#A3DDE8', '#66BECF']
 
     participants.value.forEach(participant => {
         const containerDiv = d3.selectAll('.multiple')
@@ -113,7 +130,7 @@ function drawCharts() {
         const svg = containerDiv.select('svg')
         const width = containerDiv.node().clientWidth
         const height = 200
-        const margin = { top: 24, right: 80, bottom: 24, left: 26 }
+        const margin = { top: 24, right: 80, bottom: 24, left: 32 }
 
         svg.attr('width', width).attr('height', height)
         svg.selectAll('*').remove()
@@ -144,6 +161,7 @@ function drawCharts() {
         })
 
         const stages = Array.from(new Set(points.map(d => d.stage))).sort((a, b) => a - b)
+
         const stackedData = stages.map(stage => {
             const row = { stage }
             riderData.forEach(r => {
@@ -153,15 +171,26 @@ function drawCharts() {
             return row
         })
 
+        let normalizedData = stackedData
+        if (usePercent.value) {
+            normalizedData = stackedData.map(row => {
+                const total = d3.sum(riderData.map(r => row[r.rider]))
+                if (total === 0) return row
+                const newRow = { stage: row.stage }
+                riderData.forEach(r => newRow[r.rider] = row[r.rider] / total)
+                return newRow
+            })
+        }
+
         const stack = d3.stack()
             .keys(riderData.map(r => r.rider))
             .order(d3.stackOrderNone)
             .offset(d3.stackOffsetNone)
 
-        const series = stack(stackedData)
+        const series = stack(normalizedData)
 
         const y = d3.scaleLinear()
-            .domain([0, d3.max(series, s => d3.max(s, d => d[1]))])
+            .domain([0, usePercent.value ? 1 : d3.max(series, s => d3.max(s, d => d[1]))])
             .range([height - margin.bottom, margin.top])
             .nice()
 
@@ -183,19 +212,18 @@ function drawCharts() {
             .attr('transform', `translate(${margin.left},0)`)
             .attr("class", "axis axis-y")
             .call(d3.axisLeft(y)
-                        .ticks(4)
-                        .tickSizeInner(-tickWidth)
-                        // .tickFormat(d => usePercent ? `${Math.round(d * 100)}%` : d)
-                        .tickFormat(d => d)
-                )
-                .call(g => g.select(".domain").remove());
+                .ticks(4)
+                .tickSizeInner(-tickWidth)
+                .tickFormat(d => usePercent.value ? `${Math.round(d * 100)}%` : d)
+            )
+            .call(g => g.select(".domain").remove());
 
         // Kleurtoewijzing: top5 vaste kleuren, rest grijs
         const color = d3.scaleOrdinal()
             .domain(riderData.map(r => r.rider))
             .range(riderData.map(r => {
-                const i = top5Riders.indexOf(r.rider)
-                return i >= 0 ? top5Colors[i] : '#ccc'
+                const i = top5Riders.value.indexOf(r.rider)
+                return i >= 0 ? top5Colors[i] : 'var(--muted-foreground)'
             }))
 
         // stacked areas met tooltip
@@ -248,11 +276,80 @@ function drawCharts() {
 </script>
 
 <style scoped>
+.graph-header {
+    display: flex;
+    gap: 2.5rem;
+    flex-direction: column;
+
+    @media (min-width: 768px) {
+        flex-direction: row;
+    }
+}
+.toggle-switch {
+    display: inline-flex;
+    align-items: center;
+    cursor: pointer;
+    user-select: none;
+    gap: 0.5rem;
+}
+
+.toggle-switch input {
+    display: none;
+}
+
+.toggle-switch .slider {
+    width: 2rem;
+    height: 1rem;
+    background: var(--muted-foreground);
+    border-radius: 0.5rem;
+    position: relative;
+    transition: background 0.3s;
+}
+
+.toggle-switch .slider::before {
+    content: "";
+    position: absolute;
+    width: 0.85rem;
+    height: 0.85rem;
+    left: 0.05rem;
+    top: 0.05rem;
+    background: white;
+    border-radius: 50%;
+    transition: transform 0.3s;
+}
+
+.toggle-switch input:checked+.slider::before {
+    transform: translateX(1rem);
+}
+
+.toggle-switch input:checked+.slider {
+    background: var(--primary);
+}
+
+.legend {
+    display: flex;
+    gap: 0.5rem 1rem;
+    flex-wrap: wrap;
+    align-items: left;
+}
+
+.legend-item {
+    display: flex;
+    align-items: center;
+    gap: 0.3rem;
+    font-size: var(--text-xs);
+}
+
+.color-box {
+    width: var(--text-xs);
+    height: var(--text-xs);
+}
+
 .multiples {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
     gap: 2rem;
-    margin: 5rem 0;
+    margin: 2rem 0;
 }
 
 .multiple {
@@ -277,16 +374,20 @@ function drawCharts() {
 
 :deep(.axis text) {
     font-family: 'DM Sans', sans-serif;
-  font-size: var(--text-xs);
+    font-size: var(--text-xs);
 }
 
 :deep(.axis-y) {
-  font-weight: var(--font-weight-light);
-  color: var(--muted-foreground)
+    font-weight: var(--font-weight-light);
+    color: var(--muted-foreground)
 }
 
 :deep(.axis-y line) {
-  stroke: var(--border);
+    stroke: var(--border);
+}
+
+:deep(.area) {
+    opacity: 0.8;
 }
 
 .tooltip {
