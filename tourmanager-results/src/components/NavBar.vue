@@ -5,6 +5,10 @@
     <router-link to="/selections" class="nav-link">
       Selecties
     </router-link>
+
+    <router-link to="/performance" class="nav-link">
+      Performance
+    </router-link>
   </nav>
 </template>
 

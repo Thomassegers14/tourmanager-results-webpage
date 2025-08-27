@@ -6,6 +6,7 @@ export const useRankingStore = defineStore('ranking', {
     rankings: [],
     selections: [],
     points: [],
+    favorites: [],
     loading: false,
     error: null,
   }),
@@ -42,6 +43,19 @@ export const useRankingStore = defineStore('ranking', {
         const url = `https://tourmanager-scraper.onrender.com/points/${EVENT_CONFIG.event_id}/${EVENT_CONFIG.event_year}`
         const res = await fetch(url)
         this.points = await res.json()
+      } catch (err) {
+        this.error = err
+      } finally {
+        this.loading = false
+      }
+    },
+
+    async fetchFavorites() {
+      this.loading = true
+      try {
+        const url = `https://tourmanager-scraper.onrender.com/startlist_favorites/${EVENT_CONFIG.event_id}/${EVENT_CONFIG.event_year}`
+        const res = await fetch(url)
+        this.favorites = await res.json()
       } catch (err) {
         this.error = err
       } finally {
