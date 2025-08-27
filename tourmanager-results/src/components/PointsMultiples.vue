@@ -364,11 +364,11 @@ function drawCharts() {
 }
 
 .graph-title {
-    font-weight: var(--font-weight-regular);
+    font-weight: var(--font-weight-medium);
 }
 
 .graph-subtitle {
-    font-size: var(--text-xs);
+    color: var(--muted-foreground);
     font-weight: var(--font-weight-light);
 }
 
