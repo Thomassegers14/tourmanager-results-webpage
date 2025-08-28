@@ -19,9 +19,9 @@ const tooltip = ref(null)
 
 const chartRefs = {}
 const charts = [
+    { key: "combined_score", title: "Combined Score" },
     { key: "gc_score", title: "GC Score" },
     { key: "classic_score", title: "Allround Score" },
-    { key: "combined_score", title: "Combined Score" },
     { key: "sprinter_score", title: "Sprint Score" }
 ]
 
@@ -111,9 +111,7 @@ function drawScatter(el, data, yKey, title) {
             .attr("y", rectY)
             .attr("width", Math.max(0, innerWidth - x(xMedian)))
             .attr("height", rectHeight)
-            .attr("fill", "#86C7CF")
-            .attr("opacity", 0.2)
-
+            .attr("fill", "var(--secondary)")
 
         // === Kwadrantlijnen ===
         g.append("line")
@@ -121,7 +119,7 @@ function drawScatter(el, data, yKey, title) {
             .attr("x2", x(xMedian))
             .attr("y1", 0)
             .attr("y2", innerHeight)
-            .attr("stroke", "#86C7CF")
+            .attr("stroke", "var(--muted-foreground)")
             .attr("stroke-dasharray", "4,2")
             .attr("stroke-width", 1)
 
@@ -130,12 +128,12 @@ function drawScatter(el, data, yKey, title) {
             .attr("x2", innerWidth)
             .attr("y1", y(yMedian))
             .attr("y2", y(yMedian))
-            .attr("stroke", "#86C7CF")
+            .attr("stroke", "var(--muted-foreground)")
             .attr("stroke-dasharray", "4,2")
             .attr("stroke-width", 1)
     }
     // punten
-    const circleRadius = 6
+    const circleRadius = innerWidth > 400 ? 5 : 3
     const labelPadding = 2
 
     g.selectAll("circle")
@@ -214,8 +212,8 @@ function drawScatter(el, data, yKey, title) {
 
     // force simulation
     const simulation = d3.forceSimulation(labelsData)
-        .force("x", d3.forceX(d => d.origX).strength(1))
-        .force("y", d3.forceY(d => d.origY).strength(1))
+        .force("x", d3.forceX(d => d.origX).strength(24))
+        .force("y", d3.forceY(d => d.origY).strength(24))
         .force("collide", d3.forceCollide(circleRadius + labelPadding * 2))
         .stop()
 
@@ -280,7 +278,7 @@ watch([() => store.points, () => store.favorites, () => store.selections], async
 
 .chart {
     width: 100%;
-    height: 300px;
+    height: 400px;
 
     @media (min-width: 768px) {
         height: 50vh;
@@ -319,6 +317,12 @@ watch([() => store.points, () => store.favorites, () => store.selections], async
     stroke-width: 1px;
     fill: #86C7CF;
     opacity: 0.8;
+    cursor: pointer;
+    
+    &:hover {
+        stroke: var(--primary);
+        stroke-width: 2px;
+    }
 }
 
 ::v-deep(.dot-primary) {
@@ -329,6 +333,7 @@ watch([() => store.points, () => store.favorites, () => store.selections], async
     fill: #1FA8C9;
     font-weight: var(--font-weight-light);
     font-size: var(--text-xs);
+    pointer-events: none;
 }
 
 ::v-deep(.label-primary) {
