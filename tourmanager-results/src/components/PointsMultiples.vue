@@ -235,15 +235,7 @@ function drawCharts() {
             .attr('d', area)
             .attr('stroke', '#fff')
             .attr('stroke-width', 0.5)
-            .on('mousemove', (event, d) => {
-                const [mx, my] = d3.pointer(event, containerDiv.node())
-                const last = d[d.length - 1]
-                tooltip.style('display', 'block')
-                    .style('left', mx + 10 + 'px')
-                    .style('top', my + 10 + 'px')
-                    .html(`${d.key}<br>Total: ${last.data[d.key]}`)
-            })
-            .on('mouseout', () => tooltip.style('display', 'none'))
+        // (verwijder evt. oude .on('mousemove'...) listeners op de areas)
 
         // Rider labels bij laatste stage
         const lastValues = series.map(s => {
@@ -271,6 +263,105 @@ function drawCharts() {
                 .attr('font-size', '10px')
                 .attr('fill', color(d.rider))
         })
+
+        const cursorLine = g.append('line')
+            .attr('class', 'cursor-line')
+            .attr('y1', margin.top)
+            .attr('y2', height - margin.bottom)
+            .style('display', 'none');
+
+        const capture = g.append('rect')
+            .attr('class', 'event-capture')
+            .attr('x', margin.left)
+            .attr('y', margin.top)
+            .attr('width', width - margin.left - margin.right)
+            .attr('height', height - margin.top - margin.bottom)
+            .style('fill', 'none')
+            .style('pointer-events', 'all');
+
+        // helper: dichtstbijzijnde stage
+        const stagesSorted = stages.slice().sort((a, b) => a - b);
+
+        function handleMove(event) {
+            // voorkom scroll-jank op mobiel
+            if (event.cancelable) event.preventDefault?.();
+
+            // positie voor tooltip (relatief aan containerDiv)
+            const [mxc, myc] = d3.pointer(event, containerDiv.node());
+
+            // positie in svg-ruimte (voor x->stage)
+            const [mxs] = d3.pointer(event, svg.node());
+            const mxClamped = Math.max(margin.left, Math.min(mxs, width - margin.right));
+
+            const sx = x.invert(mxClamped);
+            const i = d3.bisectCenter(stagesSorted, sx);
+            const stage = stagesSorted[i];
+            if (stage == null) return;
+
+            const xStage = x(stage);
+
+            cursorLine
+                .attr('x1', xStage)
+                .attr('x2', xStage)
+                .style('display', null);
+
+            const rows = riderData.map(r => {
+                const curr = r.values.find(v => v.stage === stage)?.cumulative_points ?? 0;
+                const prevStage = stagesSorted[i - 1];
+                const prev = prevStage != null
+                    ? (r.values.find(v => v.stage === prevStage)?.cumulative_points ?? 0)
+                    : 0;
+                const delta = Math.max(0, curr - prev); // punten in deze stage
+                return { rider: r.rider, delta, total: curr };
+            })
+                // i.p.v. filteren enkel sorteren
+                .filter(d => d.total > 0)   // alleen renners die al punten hebben
+                .sort((a, b) => b.total - a.total);
+
+
+            // Als niemand scoort, toon lege melding
+            const htmlRows = rows.length
+                ? rows.map(d => `
+      <tr class="tt-row">
+        <td>
+          <span class="tt-dot" style="background:${color(d.rider)}"></span>
+          ${formatRiderName(d.rider)}
+        </td>
+        <td class="tt-total">
+          <span class="tt-dim">${d.total}</span>
+        </td>
+        <td class="tt-points">
+          <span>${d.delta > 0 ? '+' : ''}${d.delta > 0 ? d.delta : ''}</span>
+        </td>
+      </tr>
+    `).join('')
+                : `<tr class="tt-row"><td colspan="3" class="tt-dim">Geen punten in deze stage</td></tr>`;
+
+
+            tooltip
+                .style('display', 'block')
+                .style('left', Math.min(mxc + 16, width - margin.right - 180) + 'px')
+                .style('top', Math.max(myc + 48, margin.top) + 'px')
+                .html(`
+  <div class="tt-stage">Stage ${stage}</div>
+  <table class="tt-table">
+    <tbody>${htmlRows}</tbody>
+  </table>
+    `);
+        }
+
+        function handleLeave() {
+            cursorLine.style('display', 'none');
+            tooltip.style('display', 'none');
+        }
+
+        // Desktop + mobiel events
+        capture
+            .on('mousemove', handleMove)
+            .on('mouseleave', handleLeave)
+            .on('touchstart', handleMove)
+            .on('touchmove', handleMove)
+            .on('touchend', handleLeave);
     })
 }
 </script>
@@ -285,6 +376,7 @@ function drawCharts() {
         flex-direction: row;
     }
 }
+
 .toggle-switch {
     display: inline-flex;
     align-items: center;
@@ -369,7 +461,7 @@ function drawCharts() {
 
 .graph-subtitle {
     color: var(--muted-foreground);
-    font-weight: var(--font-weight-light);
+    font-weight: var(--font-weight-regular);
 }
 
 :deep(.axis text) {
@@ -390,12 +482,65 @@ function drawCharts() {
     opacity: 0.8;
 }
 
+:deep(.cursor-line) {
+    stroke: var(--muted-foreground);
+    stroke-width: 1px;
+    pointer-events: none;
+}
+
+:deep(.event-capture) {
+    cursor: crosshair;
+}
+
 .tooltip {
     background: #fff;
-    border: 1px solid #333;
-    padding: 4px 8px;
-    border-radius: 4px;
+    border: 1px solid var(--border);
+    padding: 8px 10px;
+    border-radius: 6px;
     font-size: 12px;
     pointer-events: none;
+    max-width: 240px;
+    word-wrap: break-word;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+    z-index: 9;
+}
+
+:deep(.tt-stage) {
+    font-weight: bold;
+    margin-bottom: 4px;
+}
+
+:deep(.tt-table) {
+    border-collapse: collapse;
+    width: 100%;
+}
+
+:deep(.tt-row td) {
+    padding: 2px 4px;
+    vertical-align: middle;
+}
+
+:deep(.tt-dot) {
+    display: inline-block;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    margin-right: 4px;
+}
+
+:deep(.tt-points) {
+    color: var(--muted-foreground);
+    text-align: right;
+    white-space: nowrap;
+    padding-left: 6px;
+}
+
+:deep(.tt-total) {
+    text-align: right;
+}
+
+.tt-dim {
+    color: #666;
+    font-size: 11px;
 }
 </style>
