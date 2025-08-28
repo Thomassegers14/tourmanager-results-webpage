@@ -170,45 +170,45 @@ function drawSankey() {
   });
 
   // --- Links ---
-// Cubic Bezier link generator met fill gebaseerd op link breedte
-const linkGen = d => {
-  const x0 = d.source.x1;
-  const x1 = d.target.x0;
-  const y0 = (d.source.y0 + d.source.y1) / 2;
-  const y1 = (d.target.y0 + d.target.y1) / 2;
-  const width = Math.max(1, d.width); // breedte van de link
+  // Cubic Bezier link generator met fill gebaseerd op link breedte
+  const linkGen = d => {
+    const x0 = d.source.x1;
+    const x1 = d.target.x0;
+    const y0 = (d.source.y0 + d.source.y1) / 2;
+    const y1 = (d.target.y0 + d.target.y1) / 2;
+    const width = Math.max(1, d.width); // breedte van de link
 
-  const curvature = 0.6; // 0 = rechte lijn, 0.5 = mooie curve
-  const xi = d3.interpolateNumber(x0, x1);
+    const curvature = 0.6; // 0 = rechte lijn, 0.5 = mooie curve
+    const xi = d3.interpolateNumber(x0, x1);
 
-  // bovenkant van de link
-  const y0_top = y0 - width / 2;
-  const y1_top = y1 - width / 2;
+    // bovenkant van de link
+    const y0_top = y0 - width / 2;
+    const y1_top = y1 - width / 2;
 
-  // onderkant van de link
-  const y0_bottom = y0 + width / 2;
-  const y1_bottom = y1 + width / 2;
+    // onderkant van de link
+    const y0_bottom = y0 + width / 2;
+    const y1_bottom = y1 + width / 2;
 
-  return `
+    return `
     M${x0},${y0_top}
     C${xi(curvature)},${y0_top} ${xi(1 - curvature)},${y1_top} ${x1},${y1_top}
     L${x1},${y1_bottom}
     C${xi(1 - curvature)},${y1_bottom} ${xi(curvature)},${y0_bottom} ${x0},${y0_bottom}
     Z
   `;
-};
+  };
 
-// Links tekenen met fill & stroke
-svg.append("g")
-  .selectAll("path")
-  .data(sankeyLinks)
-  .join("path")
-  .attr("d", d => linkGen(d))
-  .attr("class", d => d.target.name === nonSelectedNodeName ? "sankey-link" : "sankey-link sankey-link-highlighted") // interne kleur
-  .attr("fill-opacity", 0.6); // transparantie voor overlappen
+  // --- Links tekenen ---
+  const linkGroup = svg.append("g")
+    .selectAll("path")
+    .data(sankeyLinks)
+    .join("path")
+    .attr("d", d => linkGen(d))
+    .attr("class", d => d.target.name === nonSelectedNodeName ? "sankey-link" : "sankey-link sankey-link-highlighted") // interne kleur
+    .attr("fill-opacity", 0.6);
 
   // --- Labels ---
-  svg.append("g")
+  const labelGroup = svg.append("g")
     .selectAll("text")
     .data(sankeyNodes)
     .join("text")
@@ -218,6 +218,54 @@ svg.append("g")
     .attr("dy", "0.35em")
     .attr("text-anchor", d => (d.type === "rider" ? "end" : "start"))
     .text(d => d.type === "rider" ? formatRiderName(d.name) : d.name);
+
+  // --- Hover interactie ---
+  function highlightNode(node) {
+    // highlight links die verbonden zijn met deze node
+    linkGroup.classed("sankey-link-highlighted", d => d.source.name === node.name || d.target.name === node.name)
+    linkGroup.classed("sankey-link-faded", d => !(d.source.name === node.name || d.target.name === node.name))
+
+    // highlight de geconnecteerde labels
+    labelGroup.classed("sankey-label-highlighted", d => {
+      if (d.name === node.name) return true;
+      return sankeyLinks.some(l =>
+        (l.source.name === node.name && l.target.name === d.name) ||
+        (l.target.name === node.name && l.source.name === d.name)
+      );
+    })
+      .classed("sankey-label-faded", d => {
+        if (d.name === node.name) return false;
+        const connected = sankeyLinks.some(l =>
+          (l.source.name === node.name && l.target.name === d.name) ||
+          (l.target.name === node.name && l.source.name === d.name)
+        );
+        return !connected;
+      });
+  }
+
+  function resetHighlight() {
+    linkGroup.classed("sankey-link-highlighted", false);
+    labelGroup.classed("sankey-label-highlighted", false);
+
+    linkGroup.classed("sankey-link-faded", false);
+    labelGroup.classed("sankey-label-faded", false);
+
+    linkGroup.attr("class", d => d.target.name === nonSelectedNodeName ? "sankey-link" : "sankey-link sankey-link-highlighted") // interne kleur
+
+  }
+
+  // Koppel events aan nodes (labels klikken/hoveren)
+  labelGroup
+    .on("mouseover", (event, d) => highlightNode(d))
+    .on("mouseout", resetHighlight);
+
+  // Idem aan paths (links)
+  linkGroup
+    .on("mouseover", (event, d) => {
+      highlightNode(d.source);
+      highlightNode(d.target);
+    })
+    .on("mouseout", resetHighlight);
 }
 
 // --- Lifecycle ---
@@ -274,19 +322,37 @@ watch([dreamTeam, () => store.selections, () => store.favorites, view], async ()
   height: 480px;
 }
 
+/* Sankey link */
 :deep(.sankey-link) {
-  /* stroke: var(--muted-foreground); */
   fill: var(--muted-foreground);
   opacity: 0.6;
   mix-blend-mode: multiply;
+  cursor: pointer;
+  transition: fill 0.3s;
 }
 
 :deep(.sankey-link-highlighted) {
   fill: #52B4C7;
-  /* stroke: #52B4C7; */
 }
 
+:deep(.sankey-link-faded) {
+  fill: var(--secondary);
+}
+
+/* Sankey labels*/
 :deep(.sankey-label) {
-    font-size: var(--text-sm);
+  fill: var(--primary);
+  font-size: var(--text-sm);
+  font-weight: var(--font-weight-light);
+  cursor: pointer;
+  transition: fill 0.3s, font-weight 0.3s;
+}
+
+:deep(.sankey-label-highlighted) {
+  font-weight: var(--font-weight-bold);
+}
+
+:deep(.sankey-label-faded) {
+  fill: var(--secondary);
 }
 </style>
