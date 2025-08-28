@@ -7,7 +7,7 @@
           <th>Renner</th>
           <th></th>
           <th>Punten</th>
-          <th>In selectie</th>
+          <th class="hideMobile">In selectie</th>
         </tr>
       </thead>
       <tbody>
@@ -17,7 +17,7 @@
             <span v-if="rider.fav_points > 0" class="badge badge-outline">{{ rider.fav_points }}pt</span>
           </td>
           <td>{{ rider.cumulative_points }}</td>
-          <td>
+          <td class="hideMobile">
             <span v-for="name in rider.selected_by" :key="name" class="badge badge-secondary selection-badge">
               {{ name }}
             </span>
@@ -305,11 +305,23 @@ watch([dreamTeam, () => store.selections, () => store.favorites, view], async ()
   padding: 0.3rem 0.5rem;
   text-align: left;
   vertical-align: middle;
-  font-size: var(--text-sm);
+  font-size: var(--text-xs);
+
+  @media (min-width: 768px) {
+  font-size: var(--text-sm);    
+  }
 }
 
 .selection-badge {
   margin-right: 0.2rem;
+}
+
+.hideMobile {
+  display: none;
+
+  @media (min-width: 768px) {
+    display: block;
+  }
 }
 
 .total-row {
