@@ -204,7 +204,7 @@ function drawCharts() {
         g.append('g')
             .attr('transform', `translate(0,${height - margin.bottom})`)
             .attr('class', 'axis axis-x')
-            .call(d3.axisBottom(x).ticks(2).tickFormat(x => x === 22 ? 'gc' : `s${x}`))
+            .call(d3.axisBottom(x).ticks(5).tickFormat(x => x === 22 ? 'gc' : `s${x}`))
 
         const tickWidth = x(lastStage) - margin.left;
 
