@@ -101,7 +101,7 @@ function drawHeatmap() {
   const extent = mode.value === 'rank' ? [maxVal, minVal] : [minVal, maxVal]
 
   const colorScale = d3.scaleLinear()
-    .domain([extent[0], (extent[0] + extent[1]) / 2, extent[1]]) // min, midpoint, max
+    .domain([extent[0], (extent[0] + extent[1]) / 3, extent[1]]) // min, midpoint, max
     .range(["#004C5C ", "#A7E6EC ", "orange"])
     .interpolate(d3.interpolateRgb)
 
