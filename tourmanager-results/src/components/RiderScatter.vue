@@ -19,36 +19,63 @@ const tooltip = ref(null)
 
 const chartRefs = {}
 const charts = [
-    { key: "combined_score", title: "Combined Score" },
-    { key: "gc_score", title: "GC Score" },
-    { key: "classic_score", title: "Allround Score" },
-    { key: "sprinter_score", title: "Sprint Score" }
+  { key: "combined_score", yTitle: "Combined Score", xKey: "points", xTitle: "Punten gescoord"},
+  { key: "classic_score", yTitle: "Allround Score", xKey: "points", xTitle: "Punten gescoord"},
+  { key: "gc_score", yTitle: "GC Score", xKey: "gc_points", xTitle: "Punten gescoord (klimetappes)"},
+  { key: "sprinter_score", yTitle: "Sprint Score", xKey: "sprinter_points", xTitle: "Punten gescoord (sprintetappes)"}
 ]
 
 // === Data voorbereiden ===
 function prepareData() {
-    const maxStage = d3.max(store.points, d => d.stage)
+  const maxStage = d3.max(store.points, d => d.stage)
 
-    const riderPoints = {}
-    store.points.forEach(d => {
-        if (d.stage === maxStage) riderPoints[d.rider_name] = d.cumulative_points
-    })
+  // Alle punten per rider groeperen
+  const riderStages = d3.group(store.points, d => d.rider_name)
 
-    const currentSelections = store.selections?.map(s => s.rider_name) || []
+  const currentSelections = store.selections?.map(s => s.rider_name) || []
 
-    return store.favorites.map(fav => ({
-        rider_name: fav.rider_name,
-        gc_score: fav.gc_score,
-        classic_score: fav.classic_score,
-        combined_score: fav.combined_score,
-        sprinter_score: fav.sprinter_score,
-        points: riderPoints[fav.rider_name] || 0,
-        inSelection: currentSelections.includes(fav.rider_name)
-    }))
+  return store.favorites.map(fav => {
+    const stagesForRider = riderStages.get(fav.rider_name) || []
+
+    // totaalpunten laatste stage
+    const totalPoints =
+      stagesForRider.find(d => d.stage === maxStage)?.cumulative_points || 0      
+
+    // filter sprinter stages
+    const sprinterStages = store.stages
+      .filter(s => s.profile_score <= 85 && s.vertical_m < 1500)
+      .map(s => s.stage_id)    
+
+    const gcStages = store.stages
+      .filter(s => s.profile_score > 100)
+      .map(s => s.stage_id)
+
+    const sprinterPoints = d3.sum(
+      stagesForRider.filter(d => sprinterStages.includes(d.stage_id)),
+      d => d.stage_points
+    )
+
+    const gcPoints = d3.sum(
+      stagesForRider.filter(d => gcStages.includes(d.stage_id)),
+      d => d.stage_points
+    )
+
+    return {
+      rider_name: fav.rider_name,
+      gc_score: fav.gc_score,
+      classic_score: fav.classic_score,
+      combined_score: fav.combined_score,
+      sprinter_score: fav.sprinter_score,
+      points: totalPoints,                 // voor combined/classic
+      sprinter_points: sprinterPoints,     // nieuwe x-as voor sprinters
+      gc_points: gcPoints,                 // nieuwe x-as voor GC
+      inSelection: currentSelections.includes(fav.rider_name)
+    }
+  })
 }
 
 // === Scatterplot tekenen ===
-function drawScatter(el, data, yKey, title) {
+function drawScatter(el, data, yKey, yTitle, xKey = "points", xTitle) {
     const d3el = d3.select(el)
     if (!d3el.node()) return
     const width = d3el.node().clientWidth
@@ -69,7 +96,7 @@ function drawScatter(el, data, yKey, title) {
 
     const x = d3
         .scaleLinear()
-        .domain([0, d3.max(data, d => d.points) || 1])
+        .domain([0, d3.max(data, d => d[xKey]) || 1])
         .range([0, innerWidth])
         .nice()
 
@@ -85,14 +112,14 @@ function drawScatter(el, data, yKey, title) {
     const g = svg.append("g").attr("transform", `translate(${margin.left},${margin.top})`)
 
     // medianen berekenen
-    const xMedian = d3.mean(data.filter(d => d.points > 0), d => d.points) || 0
-    const yMedian = d3.mean(data.filter(d => d.points > 0), d => d[yKey]) || 0
+    const xMedian = d3.mean(data.filter(d => d[xKey] > 0), d => d[xKey]) || 0
+    const yMedian = d3.mean(data.filter(d => d[yKey] > 0), d => d[yKey]) || 0
 
     // assen
     g.append("g")
         .attr("class", "axis axis-x")
         .attr("transform", `translate(0,${innerHeight})`)
-        .call(d3.axisBottom(x).ticks(4).tickSize(-innerHeight))
+        .call(d3.axisBottom(x).ticks(3).tickSize(-innerHeight))
 
     g.append("g")
         .attr("class", "axis axis-y")
@@ -140,16 +167,16 @@ function drawScatter(el, data, yKey, title) {
         .data(data)
         .join("circle")
         .attr("class", d => (d.inSelection ? "dot dot-primary" : "dot"))
-        .attr("cx", d => x(d.points))
+        .attr("cx", d => x(d[xKey]))
         .attr("cy", d => y(d[yKey]))
-        .attr("r", d => (d.points > 0 ? circleRadius : 2))
+        .attr("r", d => (d[xKey] > 0 ? circleRadius : 2))
         .on("mouseover", (event, d) => {
             d3.select(tooltip.value)
                 .classed("hidden", false)
                 .html(`
           <strong>${formatRiderName(d.rider_name)}</strong><br/>
-          Punten: ${d.points}<br/>
-          ${title}: ${d[yKey]}
+          Punten: ${d[xKey]}<br/>
+          ${yTitle}: ${d[yKey]}
         `)
                 .style("left", event.pageX + 12 + "px")
                 .style("top", event.pageY - 28 + "px")
@@ -165,9 +192,9 @@ function drawScatter(el, data, yKey, title) {
 
     // labels
     const labelsData = data
-        .filter(d => d.points > xMedian || d[yKey] > 10)
+        .filter(d => d[xKey] > xMedian || d[yKey] > yMedian)
         .map(d => {
-            const cx = x(d.points)
+            const cx = x(d[xKey])
             const cy = y(d[yKey])
 
             // richting kiezen op basis van positie in grafiek
@@ -229,7 +256,7 @@ function drawScatter(el, data, yKey, title) {
         .attr("x", innerWidth / 2)
         .attr("y", innerHeight + margin.bottom - 8)
         .attr("text-anchor", "middle")
-        .text("Punten gescoord")
+        .text(xTitle)
 
     g.append("text")
         .attr("class", "y-axis-label")
@@ -237,19 +264,21 @@ function drawScatter(el, data, yKey, title) {
         .attr("y", -margin.left / 2)
         .attr("transform", "rotate(-90)")
         .attr("text-anchor", "middle")
-        .text(title)
+        .text(yTitle)
 }
 
 
 function drawAll() {
-    const data = prepareData()
-    charts.forEach(chart => {
-        drawScatter(chartRefs[chart.key], data, chart.key, chart.title)
-    })
+  const data = prepareData()
+  charts.forEach(chart => {
+    drawScatter(chartRefs[chart.key], data, chart.key, chart.yTitle, chart.xKey, chart.xTitle)
+  })
 }
 
 let resizeObserver
 onMounted(async () => {
+    await store.fetchStages()
+    await store.fetchSelections()
     await store.fetchPoints()
     await store.fetchFavorites()
     await nextTick()
@@ -259,7 +288,7 @@ onMounted(async () => {
     if (container.value) resizeObserver.observe(container.value)
 })
 
-watch([() => store.points, () => store.favorites, () => store.selections], async () => {
+watch([() => store.points, () => store.stages, () => store.favorites, () => store.selections], async () => {
     await nextTick()
     drawAll()
 })

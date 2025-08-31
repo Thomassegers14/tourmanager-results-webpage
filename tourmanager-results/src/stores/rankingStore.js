@@ -3,6 +3,7 @@ import { EVENT_CONFIG } from '@/config.js'
 
 export const useRankingStore = defineStore('ranking', {
   state: () => ({
+    stages: [],
     rankings: [],
     selections: [],
     points: [],
@@ -11,6 +12,19 @@ export const useRankingStore = defineStore('ranking', {
     error: null,
   }),
   actions: {
+    async fetchStages() {
+      this.loading = true
+      try {
+        const url = `https://tourmanager-scraper.onrender.com/stages/${EVENT_CONFIG.event_id}/${EVENT_CONFIG.event_year}`
+        const res = await fetch(url)
+        this.stages = await res.json()
+      } catch (err) {
+        this.error = err
+      } finally {
+        this.loading = false
+      }
+    },
+
     async fetchRankings() {
       this.loading = true
       try {
