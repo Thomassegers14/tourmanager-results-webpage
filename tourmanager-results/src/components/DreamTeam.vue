@@ -7,7 +7,7 @@
           <th>Renner</th>
           <th></th>
           <th>Punten</th>
-          <th class="hideMobile">In selectie</th>
+          <th v-if="showSelectionColumn">In selectie</th>
         </tr>
       </thead>
       <tbody>
@@ -17,7 +17,7 @@
             <span v-if="rider.fav_points > 0" class="badge badge-outline">{{ rider.fav_points }}pt</span>
           </td>
           <td>{{ rider.cumulative_points }}</td>
-          <td class="hideMobile">
+          <td v-if="showSelectionColumn">
             <span v-for="name in rider.selected_by" :key="name" class="badge badge-secondary selection-badge">
               {{ name }}
             </span>
@@ -27,7 +27,7 @@
         <tr class="total-row">
           <td colspan="2">Totaal</td>
           <td>{{ dreamTeamTotalPoints }}</td>
-          <td></td>
+          <td v-if="showSelectionColumn"></td>
         </tr>
       </tbody>
     </table>
@@ -39,6 +39,12 @@
 
 <script setup>
 import { ref, onMounted, onBeforeUnmount, computed, watch, nextTick } from "vue";
+
+// Responsive column visibility
+const showSelectionColumn = ref(window.innerWidth >= 768);
+window.addEventListener("resize", () => {
+  showSelectionColumn.value = window.innerWidth >= 768;
+});
 import { useRankingStore } from "@/stores/rankingStore";
 import * as d3 from "d3";
 import { sankey as d3Sankey, sankeyLinkHorizontal } from "d3-sankey";
@@ -316,13 +322,7 @@ watch([dreamTeam, () => store.selections, () => store.favorites, view], async ()
   margin-right: 0.2rem;
 }
 
-.hideMobile {
-  display: none;
-
-  @media (min-width: 768px) {
-    display: block;
-  }
-}
+/* .hideMobile removed, now handled in template */
 
 .total-row {
   font-weight: bold;
