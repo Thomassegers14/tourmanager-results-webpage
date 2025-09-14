@@ -76,8 +76,8 @@ function drawHeatmap() {
   // Max stage uit de data
   const maxAvailableStage = d3.max(store.rankings, d => d.stage) || 1
 
-  // Stage 1 t/m 21
-  let stages = Array.from({ length: 21 }, (_, i) => i + 1)
+  // Stage 1 t/m 22 (final gc)
+  let stages = Array.from({ length: 22 }, (_, i) => i + 1)
 
   // Responsive filter: op kleine schermen laatste 5 beschikbare
   if (containerWidth < 768) {
@@ -92,19 +92,53 @@ function drawHeatmap() {
   const svgHeight = riders.length * cellSize + margin.top + margin.bottom
   const cellWidth = (svgWidth - margin.left - margin.right) / stages.length
 
-  const values = store.rankings.map(d => d[mode.value]).filter(v => v != null)
-  const minVal = d3.min(values) || 0
-  const maxVal = d3.max(values) || 1
+  // --- color scales voorbereiden ---
 
+  let colorScaleStages, colorScale22
 
+  if (mode.value === 'stage_points') {
+    // Alle waarden behalve stage 22
+    const valuesStages1to21 = store.rankings
+      .filter(d => d.stage !== 22)
+      .map(d => d[mode.value])
+      .filter(v => v != null)
 
-  const extent = mode.value === 'rank' ? [maxVal, minVal] : [minVal, maxVal]
+    const minValStages = d3.min(valuesStages1to21) || 0
+    const maxValStages = d3.max(valuesStages1to21) || 1
+    const extentStages = [minValStages, maxValStages]
 
-  const colorScale = d3.scaleLinear()
-    .domain([extent[0], (extent[0] + extent[1]) / 3, extent[1]]) // min, midpoint, max
-    .range(["#004C5C ", "#A7E6EC ", "orange"])
-    .interpolate(d3.interpolateRgb)
+    // Waarden van alleen stage 22
+    const valuesStage22 = store.rankings
+      .filter(d => d.stage === 22)
+      .map(d => d[mode.value])
+      .filter(v => v != null)
 
+    const minVal22 = d3.min(valuesStage22) ?? minValStages
+    const maxVal22 = d3.max(valuesStage22) ?? maxValStages
+    const extent22 = [minVal22, maxVal22]
+
+    colorScaleStages = d3.scaleLinear()
+      .domain([extentStages[0], (extentStages[0] + extentStages[1]) / 3, extentStages[1]])
+      .range(["#004C5C", "#A7E6EC", "orange"])
+      .interpolate(d3.interpolateRgb)
+
+    colorScale22 = d3.scaleLinear()
+      .domain([extent22[0], (extent22[0] + extent22[1]) / 3, extent22[1]])
+      .range(["#004C5C", "#A7E6EC", "orange"])
+      .interpolate(d3.interpolateRgb)
+
+  } else {
+    // fallback: alle stages samen
+    const values = store.rankings.map(d => d[mode.value]).filter(v => v != null)
+    const minVal = d3.min(values) || 0
+    const maxVal = d3.max(values) || 1
+    const extent = mode.value === 'rank' ? [maxVal, minVal] : [minVal, maxVal]
+
+    colorScaleStages = colorScale22 = d3.scaleLinear()
+      .domain([extent[0], (extent[0] + extent[1]) / 3, extent[1]])
+      .range(["#004C5C", "#A7E6EC", "orange"])
+      .interpolate(d3.interpolateRgb)
+  }
 
   // Maak data array
   const data = []
@@ -144,7 +178,14 @@ function drawHeatmap() {
     .transition()
     .duration(800) // duur van de animatie
     .delay(d => (d.row * 12 + d.col * 24) * 1.2)
-    .attr('fill', d => d.value === null ? 'var(--secondary)' : colorScale(d.value))
+    .attr('fill', d => {
+      if (d.value === null) return 'var(--secondary)'
+      if (mode.value === 'stage_points' && d.stage === 22) {
+        return colorScale22(d.value)
+      }
+      return colorScaleStages(d.value)
+    })
+
 
 
   // Waarden als labels op cell
@@ -233,7 +274,7 @@ function drawHeatmap() {
     .attr('text-anchor', 'middle')
     .attr('alignment-baseline', 'middle')
     .attr('fill', d => availableStages.has(d) ? 'white' : 'black')
-    .text(d => d)
+    .text(d => d === 22 ? 'final' : d)
 
 
 }
@@ -263,7 +304,7 @@ function drawHeatmap() {
   font-size: var(--text-xs);
 
   @media (min-width: 768px) {
-    font-size: var(--text-base);   
+    font-size: var(--text-base);
   }
 }
 
@@ -279,6 +320,7 @@ function drawHeatmap() {
 
 :deep(.stage-value) {
   font-size: var(--text-xs);
+  text-transform: uppercase;
 }
 
 :deep(.stage-bg) {
