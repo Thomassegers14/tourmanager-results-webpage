@@ -343,11 +343,12 @@ function drawCharts() {
                 .style('left', Math.min(mxc + 16, width - margin.right - 180) + 'px')
                 .style('top', Math.max(myc + 48, margin.top) + 'px')
                 .html(`
-  <div class="tt-stage">Stage ${stage}</div>
-  <table class="tt-table">
-    <tbody>${htmlRows}</tbody>
-  </table>
-    `);
+                <div class="tt-stage">${stage === 22 ? 'Final' : `Stage ${stage}`}</div>
+                <table class="tt-table">
+                    <tbody>${htmlRows}</tbody>
+                </table>
+                `)
+
         }
 
         function handleLeave() {
