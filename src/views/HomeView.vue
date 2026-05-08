@@ -1,6 +1,6 @@
 <template>
   <main>
-    <h1>Resultaten <span class="grey">{{ EVENT_CONFIG.event_id }} {{ EVENT_CONFIG.event_year }}</span></h1>
+    <h1>Resultaten <span class="grey">{{ store.activeEvent.label }}</span></h1>
     <p class="intro">
       Overzicht van de ranking na elke etappe.
     </p>
@@ -16,7 +16,9 @@
 </template>
 
 <script setup>
-import { EVENT_CONFIG } from '@/config';
+import { useRankingStore } from '@/stores/rankingStore'
 import Heatmap from '../components/Heatmap.vue'
-import PointsMultiples from '../components/PointsMultiples.vue';
+import PointsMultiples from '../components/PointsMultiples.vue'
+
+const store = useRankingStore()
 </script>

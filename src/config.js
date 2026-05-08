@@ -1,8 +1,7 @@
-// src/config.js
-export const EVENT_CONFIG = {
-  event_id: "vuelta-a-espana",
-  event_year: "2025"
-}
+export const EVENTS = [
+  { event_id: 'giro-d-italia', event_year: '2026', label: "Giro d'Italia 2026" },
+  { event_id: 'vuelta-a-espana', event_year: '2025', label: 'Vuelta a España 2025' },
+]
 
 export const formatRiderName = function(fullName) {
     const parts = fullName.trim().split(' ')

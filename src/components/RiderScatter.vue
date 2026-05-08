@@ -166,7 +166,7 @@ function drawScatter(el, data, yKey, yTitle, xKey = "points", xTitle) {
     const labelPadding = 2
 
     g.selectAll("circle")
-        .data(data)
+        .data(validData)
         .join("circle")
         .attr("class", d => (d.inSelection ? "dot dot-primary" : "dot"))
         .attr("cx", d => x(d[xKey]))
@@ -193,7 +193,7 @@ function drawScatter(el, data, yKey, yTitle, xKey = "points", xTitle) {
     g.selectAll(".dot-primary").raise()
 
     // labels
-    const labelsData = data
+    const labelsData = validData
         .filter(d => d[xKey] > xMedian || d[yKey] > yMedian)
         .map(d => {
             const cx = x(d[xKey])
