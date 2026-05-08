@@ -138,7 +138,7 @@ function drawCharts() {
         const tooltip = containerDiv.select('.tooltip')
 
         const x = d3.scaleLinear()
-            .domain(d3.extent(points, d => d.stage))
+            .domain([0, d3.max(points, d => d.stage)])
             .range([margin.left, width - margin.right])
 
         let riderData = participant.selectedRiders.map(rider => ({
@@ -160,7 +160,8 @@ function drawCharts() {
             return d3.descending(aPoints, bPoints)
         })
 
-        const stages = Array.from(new Set(points.map(d => d.stage))).sort((a, b) => a - b)
+        const actualStages = Array.from(new Set(points.map(d => d.stage))).sort((a, b) => a - b)
+        const stages = actualStages.length === 1 ? [0, ...actualStages] : actualStages
 
         const stackedData = stages.map(stage => {
             const row = { stage }
@@ -204,7 +205,7 @@ function drawCharts() {
         g.append('g')
             .attr('transform', `translate(0,${height - margin.bottom})`)
             .attr('class', 'axis axis-x')
-            .call(d3.axisBottom(x).ticks(5).tickFormat(x => x === 22 ? 'gc' : `s${x}`))
+            .call(d3.axisBottom(x).tickValues(stages).tickFormat(x => x === 22 ? 'gc' : x === 0 ? '' : `s${x}`))
 
         const tickWidth = x(lastStage) - margin.left;
 
@@ -214,7 +215,7 @@ function drawCharts() {
             .call(d3.axisLeft(y)
                 .ticks(4)
                 .tickSizeInner(-tickWidth)
-                .tickFormat(d => usePercent.value ? `${Math.round(d * 100)}%` : d)
+                .tickFormat(d => usePercent.value ? `${Math.round(d * 100)}%` : Math.round(d))
             )
             .call(g => g.select(".domain").remove());
 
