@@ -9,7 +9,12 @@ async function fetchCSV(url) {
   const res = await fetch(url)
   if (!res.ok) throw new Error(`Failed to fetch ${url}: ${res.status}`)
   const text = await res.text()
-  return Papa.parse(text, { header: true, dynamicTyping: true, skipEmptyLines: true }).data
+  return Papa.parse(text, {
+    header: true,
+    dynamicTyping: true,
+    skipEmptyLines: true,
+    transform: (value) => (value === 'NaN' ? null : value),
+  }).data
 }
 
 export const useRankingStore = defineStore('ranking', {

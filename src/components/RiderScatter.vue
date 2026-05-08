@@ -101,7 +101,9 @@ function drawScatter(el, data, yKey, yTitle, xKey = "points", xTitle) {
         .nice()
 
     // y as afronden op veelvouden van 5
-    const yExtent = d3.extent(data, d => d[yKey])
+    const validData = data.filter(d => d[yKey] != null && !isNaN(d[yKey]))
+    if (validData.length === 0) return
+    const yExtent = d3.extent(validData, d => d[yKey])
     const yMax = Math.ceil(yExtent[1] / 5) * 5
     const yMin = Math.floor(yExtent[0] / 5) * 5
     const y = d3
