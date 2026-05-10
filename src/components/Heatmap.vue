@@ -59,11 +59,6 @@ function handleResize() {
 function drawHeatmap() {
   if (!store.rankings?.length) return
 
-  // Unieke rijders voor Y-as
-  const riders = Array.from(
-    new Set(store.rankings.map(r => `${r.voornaam} ${r.achternaam}`))
-  )
-
   // Container breedte responsive
   const containerWidth = container.value.clientWidth
   const svgWidth = containerWidth
@@ -75,6 +70,15 @@ function drawHeatmap() {
 
   // Max stage uit de data
   const maxAvailableStage = d3.max(store.rankings, d => d.stage) || 1
+
+  // Unieke rijders gesorteerd op rank bij de laatste beschikbare stage
+  const riders = Array.from(
+    new Set(store.rankings.map(r => `${r.voornaam} ${r.achternaam}`))
+  ).sort((a, b) => {
+    const entryA = store.rankings.find(r => `${r.voornaam} ${r.achternaam}` === a && r.stage === maxAvailableStage)
+    const entryB = store.rankings.find(r => `${r.voornaam} ${r.achternaam}` === b && r.stage === maxAvailableStage)
+    return (entryA?.rank ?? Infinity) - (entryB?.rank ?? Infinity)
+  })
 
   // Stage 1 t/m 22 (final gc)
   let stages = Array.from({ length: 22 }, (_, i) => i + 1)
