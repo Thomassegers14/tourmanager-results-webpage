@@ -26,7 +26,12 @@ async function fetchCSV(url) {
     header: true,
     dynamicTyping: true,
     skipEmptyLines: true,
-    transform: (value) => (value === 'NaN' ? null : value),
+    transform: (value) => {
+      if (value === 'NaN') return null
+      if (value === 'True') return true
+      if (value === 'False') return false
+      return value
+    },
   }).data
 }
 

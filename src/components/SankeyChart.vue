@@ -1,12 +1,19 @@
 <template>
-    <div class="controls">
-    <label for="hl">Highlight deelnemers</label>
-    <select id="hl" v-model="highlightedParticipants" multiple>
-      <option v-for="p in participantOptions" :key="p" :value="p">
-        {{ p }}
-      </option>
-    </select>
-    <button type="button" @click="highlightedParticipants = []">Clear</button>
+  <div class="controls">
+    <button
+      v-for="p in participantOptions"
+      :key="p"
+      type="button"
+      class="chip"
+      :class="{ 'chip-active': highlightedParticipants.includes(p) }"
+      @click="toggleParticipant(p)"
+    >{{ p }}</button>
+    <button
+      v-if="highlightedParticipants.length"
+      type="button"
+      class="chip chip-clear"
+      @click="highlightedParticipants = []"
+    >✕ Alles wissen</button>
   </div>
 
   <div class="sankey" ref="chart"></div>
@@ -36,7 +43,7 @@ const participantOptions = computed(() => {
   function formatRiderName(fullName) {
     const parts = fullName.trim().split(' ')
     if (parts.length < 2) return fullName
-    const firstName = parts.pop()
+    parts.pop()
     const lastName = parts.join(' ').toLowerCase()
     return lastName.replace(/(^|\s|-)(\p{L})/gu, (_, sep, letter) => sep + letter.toLocaleUpperCase())
   }
@@ -57,6 +64,15 @@ watch([() => store.selections, highlightedParticipants], async () => {
   drawChord()
 })
 
+function toggleParticipant(p) {
+  const idx = highlightedParticipants.value.indexOf(p)
+  if (idx >= 0) {
+    highlightedParticipants.value = highlightedParticipants.value.filter((_, i) => i !== idx)
+  } else {
+    highlightedParticipants.value = [...highlightedParticipants.value, p]
+  }
+}
+
 function handleResize() {
   drawChord()
 }
@@ -75,6 +91,9 @@ function drawChord() {
 
   const participants = Array.from(new Set(data.map(d => fmtParticipantShort(d))))
   const riders = Array.from(new Set(data.map(d => formatRiderName(d.rider_name))))
+  const inactiveRiders = new Set(
+    data.filter(d => !d.active).map(d => formatRiderName(d.rider_name))
+  )
 
   const dummyCount = width > 600 ? 24 : 9
   const dummyBefore = Array.from({ length: dummyCount }, (_, i) => `gap-before-${i}`)
@@ -111,6 +130,7 @@ function drawChord() {
   .attr('d', arcGen)
   .attr('class', d => {
     const name = allNodes[d.index]
+    if (inactiveRiders.has(name)) return 'sankey-node sankey-node-inactive'
     const isHighlighted = highlightedParticipants.value.includes(name)
     return isHighlighted ? 'sankey-node sankey-node-highlighted' : 'sankey-node'
   })
@@ -127,6 +147,7 @@ const labels = group.append('text')
   .attr('text-anchor', d => d.angle > Math.PI ? 'end' : 'start')
   .attr('class', d => {
     const name = allNodes[d.index]
+    if (inactiveRiders.has(name)) return 'sankey-label sankey-label-inactive'
     const isHighlighted = highlightedParticipants.value.includes(name)
     return isHighlighted ? 'sankey-label sankey-label-highlighted' : 'sankey-label'
   })
@@ -142,6 +163,7 @@ const ribbons = svg.append('g')
   .attr('class', d => {
     const s = allNodes[d.source.index]
     const t = allNodes[d.target.index]
+    if (inactiveRiders.has(s) || inactiveRiders.has(t)) return 'sankey-link sankey-link-inactive'
     const isHighlighted = highlightedParticipants.value.includes(s) || highlightedParticipants.value.includes(t)
     return isHighlighted ? 'sankey-link sankey-link-highlighted' : 'sankey-link'
   })
@@ -151,43 +173,105 @@ const ribbons = svg.append('g')
     .filter(d => !allNodes[d.source.index].startsWith('gap') && !allNodes[d.target.index].startsWith('gap'))
     .attr('d', d3.ribbon().radius(innerRadius));
 
+  function isConnected(i, nodeIndex) {
+    return ribbons.data().some(r =>
+      (r.source.index === i && r.target.index === nodeIndex) ||
+      (r.target.index === i && r.source.index === nodeIndex)
+    )
+  }
+
+  function applySelection() {
+    const selected = highlightedParticipants.value
+    if (!selected.length) {
+      nodes.classed('sankey-node-highlighted', false).classed('sankey-node-faded', false)
+      ribbons.classed('sankey-link-highlighted', false).classed('sankey-link-faded', false)
+      labels.classed('sankey-label-highlighted', false).classed('sankey-label-faded', false)
+      return
+    }
+    const selectedIndices = new Set(selected.map(p => index.get(p)).filter(i => i != null))
+
+    nodes.classed('sankey-node-faded', true).classed('sankey-node-highlighted', false)
+    ribbons.classed('sankey-link-faded', true).classed('sankey-link-highlighted', false)
+    labels.classed('sankey-label-faded', true).classed('sankey-label-highlighted', false)
+
+    nodes.each(function(d) {
+      if (selectedIndices.has(d.index) || [...selectedIndices].some(i => isConnected(i, d.index))) {
+        d3.select(this).classed('sankey-node-highlighted', true).classed('sankey-node-faded', false)
+      }
+    })
+
+    ribbons.each(function(d) {
+      if ([...selectedIndices].some(i => d.source.index === i || d.target.index === i)) {
+        d3.select(this).classed('sankey-link-highlighted', true).classed('sankey-link-faded', false)
+      }
+    })
+
+    labels.each(function(d) {
+      if (selectedIndices.has(d.index) || [...selectedIndices].some(i => isConnected(i, d.index))) {
+        d3.select(this).classed('sankey-label-highlighted', true).classed('sankey-label-faded', false)
+      }
+    })
+  }
+
   // Hover interactiviteit
   group.on('mouseover', function (event, d) {
     const i = d.index
-
     nodes.classed('sankey-node-faded', true)
-    nodes.filter(l => l.index === i ||
-      (ribbons.data().some(r => r.source.index === i && r.target.index === l.index) ||
-        ribbons.data().some(r => r.target.index === i && r.source.index === l.index)))
-      .classed('sankey-node-highlighted', true)
-
+    nodes.filter(l => l.index === i || isConnected(i, l.index)).classed('sankey-node-highlighted', true)
     ribbons.classed('sankey-link-faded', true)
-    ribbons.filter(r => r.source.index === i || r.target.index === i)
-      .classed('sankey-link-highlighted', true)
-
+    ribbons.filter(r => r.source.index === i || r.target.index === i).classed('sankey-link-highlighted', true)
     labels.classed('sankey-label-faded', true)
-    labels.filter(l => l.index === i ||
-      (ribbons.data().some(r => r.source.index === i && r.target.index === l.index) ||
-        ribbons.data().some(r => r.target.index === i && r.source.index === l.index)))
-      .classed('sankey-label-highlighted', true)
+    labels.filter(l => l.index === i || isConnected(i, l.index)).classed('sankey-label-highlighted', true)
   })
 
   group.on('mouseout', function () {
-    nodes.classed('sankey-node-highlighted', false)
-      .classed('sankey-node-faded', false)
-
-    ribbons.classed('sankey-link-highlighted', false)
-      .classed('sankey-link-faded', false)
-
-    labels.classed('sankey-label-highlighted', false)
-      .classed('sankey-label-faded', false)
+    applySelection()
   })
+
+  applySelection()
 }
 
 
 </script>
 
 <style scoped>
+.controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-bottom: 1rem;
+}
+
+.chip {
+  padding: 0.25rem 0.75rem;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--primary);
+  font-size: var(--text-xs);
+  cursor: pointer;
+  transition: background 150ms, color 150ms;
+
+  &:hover {
+    border-color: var(--primary);
+  }
+}
+
+.chip-active {
+  background: var(--primary);
+  color: var(--background);
+  border-color: var(--primary);
+}
+
+.chip-clear {
+  color: var(--muted-foreground);
+  border-color: var(--border);
+
+  &:hover {
+    color: var(--primary);
+  }
+}
+
 .sankey {
   width: 100%;
   height: 80vh;
@@ -221,12 +305,28 @@ const ribbons = svg.append('g')
   fill: var(--primary);
 }
 
+:deep(.sankey-node-inactive) {
+  fill: var(--muted-foreground);
+  opacity: 0.3;
+}
+
+:deep(.sankey-label-inactive) {
+  fill: var(--muted-foreground);
+  opacity: 0.5;
+}
+
 :deep(.sankey-link) {
   fill: var(--muted-foreground);
   stroke: var(--muted-foreground);
   opacity: 0.4;
   mix-blend-mode: multiply;
   transition: fill 200ms;
+}
+
+:deep(.sankey-link-inactive) {
+  fill: var(--muted-foreground);
+  stroke: var(--muted-foreground);
+  opacity: 0.2;
 }
 
 :deep(.sankey-link-faded) {
