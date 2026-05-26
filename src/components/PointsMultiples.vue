@@ -44,7 +44,7 @@ function formatRiderName(fullName) {
     if (parts.length < 2) return fullName
     const firstName = parts.pop()
     const lastName = parts.join(' ').toLowerCase()
-    return lastName.replace(/(^|\s|-)(\p{L})/gu, (_, sep, letter) => sep + letter.toLocaleUpperCase())
+    return lastName.replace(/(^|\s|-)(?:\p{L})/gu, (_, sep, letter) => sep + letter.toLocaleUpperCase())
 }
 
 onMounted(async () => {
@@ -202,10 +202,12 @@ function drawCharts() {
 
         const g = svg.append('g')
 
+        const xTickValues = stages.filter(s => s > 0 && (s % 5 === 0 || s === lastStage || s === 22))
+
         g.append('g')
             .attr('transform', `translate(0,${height - margin.bottom})`)
             .attr('class', 'axis axis-x')
-            .call(d3.axisBottom(x).tickValues(stages).tickFormat(x => x === 22 ? 'gc' : x === 0 ? '' : `s${x}`))
+            .call(d3.axisBottom(x).tickValues(xTickValues).tickFormat(x => x === 22 ? 'gc' : `s${x}`))
 
         const tickWidth = x(lastStage) - margin.left;
 
