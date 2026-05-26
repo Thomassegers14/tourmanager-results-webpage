@@ -44,7 +44,7 @@ function formatRiderName(fullName) {
     if (parts.length < 2) return fullName
     const firstName = parts.pop()
     const lastName = parts.join(' ').toLowerCase()
-    return lastName.replace(/(^|\s|-)(?:\p{L})/gu, (_, sep, letter) => sep + letter.toLocaleUpperCase())
+    return lastName.replace(/(^|\s|-)(\p{L})/gu, (_, sep, letter) => sep + letter.toLocaleUpperCase())
 }
 
 onMounted(async () => {
@@ -238,7 +238,6 @@ function drawCharts() {
             .attr('d', area)
             .attr('stroke', '#fff')
             .attr('stroke-width', 0.5)
-        // (verwijder evt. oude .on('mousemove'...) listeners op de areas)
 
         // Rider labels bij laatste stage
         const lastValues = series.map(s => {
@@ -282,17 +281,12 @@ function drawCharts() {
             .style('fill', 'none')
             .style('pointer-events', 'all');
 
-        // helper: dichtstbijzijnde stage
         const stagesSorted = stages.slice().sort((a, b) => a - b);
 
         function handleMove(event) {
-            // voorkom scroll-jank op mobiel
             if (event.cancelable) event.preventDefault?.();
 
-            // positie voor tooltip (relatief aan containerDiv)
             const [mxc, myc] = d3.pointer(event, containerDiv.node());
-
-            // positie in svg-ruimte (voor x->stage)
             const [mxs] = d3.pointer(event, svg.node());
             const mxClamped = Math.max(margin.left, Math.min(mxs, width - margin.right));
 
@@ -314,15 +308,12 @@ function drawCharts() {
                 const prev = prevStage != null
                     ? (r.values.find(v => v.stage === prevStage)?.cumulative_points ?? 0)
                     : 0;
-                const delta = Math.max(0, curr - prev); // punten in deze stage
+                const delta = Math.max(0, curr - prev);
                 return { rider: r.rider, delta, total: curr };
             })
-                // i.p.v. filteren enkel sorteren
-                .filter(d => d.total > 0)   // alleen renners die al punten hebben
+                .filter(d => d.total > 0)
                 .sort((a, b) => b.total - a.total);
 
-
-            // Als niemand scoort, toon lege melding
             const htmlRows = rows.length
                 ? rows.map(d => `
       <tr class="tt-row">
@@ -340,7 +331,6 @@ function drawCharts() {
     `).join('')
                 : `<tr class="tt-row"><td colspan="3" class="tt-dim">Geen punten in deze stage</td></tr>`;
 
-
             tooltip
                 .style('display', 'block')
                 .style('left', Math.min(mxc + 16, width - margin.right - 180) + 'px')
@@ -351,7 +341,6 @@ function drawCharts() {
                     <tbody>${htmlRows}</tbody>
                 </table>
                 `)
-
         }
 
         function handleLeave() {
@@ -359,7 +348,6 @@ function drawCharts() {
             tooltip.style('display', 'none');
         }
 
-        // Desktop + mobiel events
         capture
             .on('mousemove', handleMove)
             .on('mouseleave', handleLeave)
