@@ -35,6 +35,10 @@
     <!-- Sankey diagram -->
     <div ref="sankeyContainer" class="sankey-container"></div>
   </div>
+  <EmptyState v-else-if="loaded"
+    title="Nog geen droomteam"
+    message="Het optimale team verschijnt zodra er punten gescoord zijn." />
+  <div v-else class="chart-loading">Laden…</div>
 </template>
 
 <script setup>
@@ -49,10 +53,12 @@ import { useRankingStore } from "@/stores/rankingStore";
 import * as d3 from "d3";
 import { sankey as d3Sankey, sankeyLinkHorizontal } from "d3-sankey";
 import { formatRiderName } from "../config";
+import EmptyState from "./EmptyState.vue";
 
 const store = useRankingStore();
 const sankeyContainer = ref(null);
 const view = ref("sankey");
+const loaded = ref(false);
 
 // --- Data preparation ---
 const enrichedRiders = computed(() => {
@@ -280,6 +286,7 @@ onMounted(async () => {
   if (!store.selections?.length) await store.fetchSelections();
   if (!store.points?.length) await store.fetchPoints();
   if (!store.favorites?.length) await store.fetchFavorites(); // indien nodig
+  loaded.value = true;
 
   drawSankey();
   resizeObserver = new ResizeObserver(() => drawSankey());

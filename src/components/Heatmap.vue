@@ -11,21 +11,24 @@
     <div v-if="hasData" class="heatmap-container" ref="container">
       <svg ref="svg"></svg>
     </div>
-    <div v-else>
-      Loading...
-    </div>
+    <EmptyState v-else-if="loaded"
+      title="Nog geen ranking"
+      message="De ranking verschijnt zodra de eerste etappe verreden is." />
+    <div v-else class="chart-loading">Laden…</div>
   </div>
 </template>
 
 <script setup>
 import { ref, onMounted, onBeforeUnmount, watch, nextTick, computed } from 'vue'
 import { useRankingStore } from '@/stores/rankingStore'
+import EmptyState from './EmptyState.vue'
 import * as d3 from 'd3'
 
 const container = ref(null)
 const svg = ref(null)
 const store = useRankingStore()
 const mode = ref('rank')
+const loaded = ref(false)
 
 const cellSize = 30
 
@@ -34,6 +37,7 @@ const hasData = computed(() => store.rankings?.length > 0)
 
 onMounted(async () => {
   await store.fetchRankings()
+  loaded.value = true
   if (hasData.value) drawHeatmap()
 
   // ✅ Resize listener toevoegen

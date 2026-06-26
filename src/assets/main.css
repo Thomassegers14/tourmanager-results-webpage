@@ -1,1 +1,8 @@
 @import './base.css';
+
+.chart-loading {
+  padding: 3rem 1rem;
+  text-align: center;
+  color: var(--muted-foreground);
+  font-size: var(--text-sm);
+}

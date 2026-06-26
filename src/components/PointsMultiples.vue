@@ -1,4 +1,5 @@
 <template>
+  <template v-if="hasData">
     <div class="graph-header">
         <label class="toggle-switch">
             <input type="checkbox" v-model="usePercent" />
@@ -22,17 +23,26 @@
             <div class="tooltip" style="display:none; position:absolute;"></div>
         </div>
     </div>
+  </template>
+  <EmptyState v-else-if="loaded"
+    title="Nog geen punten"
+    message="De puntenverdeling verschijnt zodra er etappes verreden zijn." />
+  <div v-else class="chart-loading">Laden…</div>
 </template>
 
 <script setup>
-import { ref, onMounted, watch, nextTick, onBeforeUnmount } from 'vue'
+import { ref, computed, onMounted, watch, nextTick, onBeforeUnmount } from 'vue'
 import * as d3 from 'd3'
 import { useRankingStore } from '@/stores/rankingStore'
+import EmptyState from './EmptyState.vue'
 
 const store = useRankingStore()
 const container = ref(null)
 const participants = ref([])
 const usePercent = ref(false)
+const loaded = ref(false)
+
+const hasData = computed(() => store.selections?.length > 0 && store.points?.length > 0)
 
 const top5Riders = ref([])
 const top5Colors = ["#004C5C", "#1FA8C9", "#86C7CF", '#FFC466', '#FF9800'].reverse()
@@ -50,6 +60,7 @@ function formatRiderName(fullName) {
 onMounted(async () => {
     if (!store.selections?.length) await store.fetchSelections()
     if (!store.points?.length) await store.fetchPoints()
+    loaded.value = true
     updateParticipants()
     drawCharts()
 

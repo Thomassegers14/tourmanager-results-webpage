@@ -1,4 +1,5 @@
 <template>
+  <template v-if="hasData">
   <div class="controls">
     <button
       v-for="p in participantOptions"
@@ -17,15 +18,24 @@
   </div>
 
   <div class="sankey" ref="chart"></div>
+  </template>
+  <EmptyState v-else-if="loaded"
+    title="Nog geen inzendingen"
+    message="Zodra deelnemers hun ploeg insturen, verschijnt hier de selectie-analyse." />
+  <div v-else class="chart-loading">Laden…</div>
 </template>
 
 <script setup>
 import { ref, computed, onMounted, watch, nextTick, onBeforeUnmount } from 'vue'
 import { useRankingStore } from '@/stores/rankingStore'
+import EmptyState from './EmptyState.vue'
 import * as d3 from 'd3'
 
 const chart = ref(null)
 const store = useRankingStore()
+const loaded = ref(false)
+
+const hasData = computed(() => store.selections?.length > 0)
 
 // 🔹 nieuw: lijst met te highlighten deelnemers
 const highlightedParticipants = ref([])
@@ -51,6 +61,7 @@ const participantOptions = computed(() => {
 onMounted(async () => {
   window.addEventListener('resize', handleResize)
   if (!store.selections?.length) await store.fetchSelections()
+  loaded.value = true
   drawChord()
 })
 

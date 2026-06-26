@@ -1,21 +1,29 @@
 <template>
-    <div class="scatter-container" ref="container">
+    <div v-if="hasData" class="scatter-container" ref="container">
         <div v-for="chart in charts" :key="chart.key" class="chart" :ref="el => chartRefs[chart.key] = el"></div>
 
         <!-- Tooltip -->
         <div ref="tooltip" class="tooltip hidden"></div>
     </div>
+    <EmptyState v-else-if="loaded"
+      title="Nog geen performance-data"
+      message="De analyse verschijnt zodra renners punten gescoord hebben." />
+    <div v-else class="chart-loading">Laden…</div>
 </template>
 
 <script setup>
-import { ref, onMounted, watch, nextTick } from "vue"
+import { ref, computed, onMounted, watch, nextTick } from "vue"
 import { useRankingStore } from "@/stores/rankingStore"
 import { formatRiderName } from "@/config.js"
+import EmptyState from "./EmptyState.vue"
 import * as d3 from "d3"
 
 const store = useRankingStore()
 const container = ref(null)
 const tooltip = ref(null)
+const loaded = ref(false)
+
+const hasData = computed(() => store.favorites?.length > 0 && store.points?.length > 0)
 
 const chartRefs = {}
 const charts = [
@@ -283,6 +291,7 @@ onMounted(async () => {
     await store.fetchSelections()
     await store.fetchPoints()
     await store.fetchFavorites()
+    loaded.value = true
     await nextTick()
     drawAll()
 

@@ -1,4 +1,6 @@
+// Meest recente event eerst: EVENTS[0] is de standaardkeuze waarop de app opent.
 export const EVENTS = [
+  { event_id: 'tour-de-france', event_year: '2026', label: 'Tour de France 2026' },
   { event_id: 'giro-d-italia', event_year: '2026', label: "Giro d'Italia 2026" },
   { event_id: 'vuelta-a-espana', event_year: '2025', label: 'Vuelta a España 2025' },
 ]
