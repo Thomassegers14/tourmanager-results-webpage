@@ -16,7 +16,8 @@
 
 
     <div class="multiples" ref="container">
-        <div v-for="participant in participants" :key="participant.name" class="multiple">
+        <div v-for="(participant, i) in participants" :key="participant.name" class="multiple"
+            :ref="el => (multipleRefs[i] = el)">
             <p class="graph-title">{{ participant.name }}</p>
             <p class="graph-subtitle">{{ participant.totalPoints }}ptn</p>
             <svg class="chart"></svg>
@@ -31,10 +32,11 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, watch, nextTick, onBeforeUnmount } from 'vue'
+import { ref, computed, onMounted, onBeforeUpdate, watch, nextTick, onBeforeUnmount } from 'vue'
 import * as d3 from 'd3'
 import { useRankingStore } from '@/stores/rankingStore'
 import EmptyState from './EmptyState.vue'
+import { debounce } from '@/utils/debounce'
 
 const store = useRankingStore()
 const container = ref(null)
@@ -47,7 +49,20 @@ const hasData = computed(() => store.selections?.length > 0 && store.points?.len
 const top5Riders = ref([])
 const top5Colors = ["#004C5C", "#1FA8C9", "#86C7CF", '#FFC466', '#FF9800'].reverse()
 
+// Template-refs per deelnemer (zelfde index als participants) — vervangt de
+// O(P²) DOM-scan op textContent
+const multipleRefs = []
+onBeforeUpdate(() => { multipleRefs.length = 0 })
+
+// Gedeelde, vooraf berekende chartdata (één keer per data-wijziging i.p.v. per chart)
+let chartCtx = null
+
+// Lazy rendering: charts worden pas getekend als ze (bijna) in beeld komen
+let intersectionObserver = null
+const drawnCharts = new Set()
+
 let resizeObserver = null
+let lastContainerWidth = 0
 
 function formatRiderName(fullName) {
     const parts = fullName.trim().split(' ')
@@ -58,275 +73,297 @@ function formatRiderName(fullName) {
 }
 
 onMounted(async () => {
-    if (!store.selections?.length) await store.fetchSelections()
-    if (!store.points?.length) await store.fetchPoints()
+    await Promise.all([store.fetchSelections(), store.fetchPoints()])
     loaded.value = true
-    updateParticipants()
-    drawCharts()
+    await refresh()
 
-    resizeObserver = new ResizeObserver(() => drawCharts())
+    // Alleen hertekenen bij breedte-wijziging: de eerste draw verandert de
+    // containerhoogte, wat anders meteen een tweede volledige render triggert
+    resizeObserver = new ResizeObserver(debounce(() => {
+        const width = container.value?.clientWidth || 0
+        if (width === lastContainerWidth) return
+        lastContainerWidth = width
+        drawnCharts.forEach(i => drawChart(i))
+    }))
     if (container.value) resizeObserver.observe(container.value)
 })
 
 onBeforeUnmount(() => {
-    if (resizeObserver && container.value) {
-        resizeObserver.unobserve(container.value)
-    }
+    resizeObserver?.disconnect()
+    intersectionObserver?.disconnect()
 })
 
-watch([() => store.selections, () => store.points, usePercent], async () => {
-    await nextTick()
+watch([() => store.selections, () => store.points, usePercent], () => refresh())
+
+async function refresh() {
+    if (!hasData.value) return
     updateParticipants()
-    drawCharts()
-})
+    prepareChartData()
+    await nextTick()
+    lastContainerWidth = container.value?.clientWidth || 0
+    observeCharts()
+}
+
+function observeCharts() {
+    intersectionObserver?.disconnect()
+    drawnCharts.clear()
+    intersectionObserver = new IntersectionObserver(entries => {
+        for (const entry of entries) {
+            if (!entry.isIntersecting) continue
+            const i = multipleRefs.indexOf(entry.target)
+            if (i === -1) continue
+            drawChart(i)
+            drawnCharts.add(i)
+            intersectionObserver.unobserve(entry.target)
+        }
+    }, { rootMargin: '200px 0px' })
+    multipleRefs.forEach(el => el && intersectionObserver.observe(el))
+}
 
 function updateParticipants() {
     const fmtParticipantShort = d =>
         `${d.voornaam ?? ''} ${d.achternaam ?? ''}`.trim()
 
-    const rawParticipants = Array.from(
-        new Set(store.selections.map(fmtParticipantShort))
-    )
-
     const lastStage = d3.max(store.points, d => d.stage)
 
-    participants.value = rawParticipants.map(name => {
-        const selectedRiders = store.selections
-            .filter(s => fmtParticipantShort(s) === name)
-            .map(s => s.rider_name)
+    // Totaalpunten per renner op de laatste stage, in één pass over de puntendata
+    const totalByRider = new Map()
+    for (const p of store.points) {
+        if (p.stage === lastStage) {
+            totalByRider.set(p.rider_name, (totalByRider.get(p.rider_name) || 0) + p.cumulative_points)
+        }
+    }
 
-        const totalPoints = store.points
-            .filter(p => selectedRiders.includes(p.rider_name) && p.stage === lastStage)
-            .reduce((sum, p) => sum + p.cumulative_points, 0)
+    const selectionsByParticipant = d3.group(store.selections, fmtParticipantShort)
 
+    participants.value = Array.from(selectionsByParticipant, ([name, sels]) => {
+        const selectedRiders = sels.map(s => s.rider_name)
+        const totalPoints = d3.sum(selectedRiders, r => totalByRider.get(r) || 0)
         return { name, totalPoints, selectedRiders }
-    })
-
-    participants.value.sort((a, b) => d3.descending(a.totalPoints, b.totalPoints))
+    }).sort((a, b) => d3.descending(a.totalPoints, b.totalPoints))
 }
 
-function drawCharts() {
-    if (!store.selections?.length || !store.points?.length) return
-    if (!participants.value.length) return
-
+// Gedeelde lookups één keer berekenen i.p.v. per chart opnieuw te filteren
+function prepareChartData() {
     const points = store.points
     const lastStage = d3.max(points, d => d.stage)
 
-    // Verzamel alle geselecteerde renners van alle deelnemers
+    const valuesByRider = d3.group(points, d => d.rider_name)
+    valuesByRider.forEach(values => values.sort((a, b) => a.stage - b.stage))
+
+    const cumByRiderStage = new Map()
+    for (const p of points) {
+        cumByRiderStage.set(`${p.rider_name}|${p.stage}`, p.cumulative_points)
+    }
+
+    const actualStages = Array.from(new Set(points.map(d => d.stage))).sort((a, b) => a - b)
+    const stages = actualStages.length === 1 ? [0, ...actualStages] : actualStages
+
+    // Top 5 renners over alle selecties heen (vaste legendekleuren)
     const selectedRidersSet = new Set()
-    participants.value.forEach(p => {
-        p.selectedRiders.forEach(r => selectedRidersSet.add(r))
+    participants.value.forEach(p => p.selectedRiders.forEach(r => selectedRidersSet.add(r)))
+
+    const riderTotals = {}
+    selectedRidersSet.forEach(r => {
+        const total = cumByRiderStage.get(`${r}|${lastStage}`)
+        if (total != null) riderTotals[r] = total
     })
 
-    // Bereken totaalpunten per geselecteerde rider in de laatste stage
-    const riderTotals = {}
-    points
-        .filter(p => p.stage === lastStage && selectedRidersSet.has(p.rider_name))
-        .forEach(p => {
-            riderTotals[p.rider_name] = (riderTotals[p.rider_name] || 0) + p.cumulative_points
-        })
-
-    // Na berekening van top5:
     top5Riders.value = Object.entries(riderTotals)
         .sort((a, b) => b[1] - a[1])
         .slice(0, 5)
         .map(d => d[0])
 
-    participants.value.forEach(participant => {
-        const containerDiv = d3.selectAll('.multiple')
-            .filter((d, i, nodes) => nodes[i].querySelector('p').textContent.includes(participant.name))
+    chartCtx = { lastStage, valuesByRider, cumByRiderStage, stages }
+}
 
-        if (!containerDiv.node()) return
+function drawChart(i) {
+    if (!chartCtx) return
+    const participant = participants.value[i]
+    const el = multipleRefs[i]
+    if (!participant || !el) return
 
-        const svg = containerDiv.select('svg')
-        const width = containerDiv.node().clientWidth
-        const height = 200
-        const margin = { top: 24, right: 80, bottom: 24, left: 32 }
+    const { lastStage, cumByRiderStage, valuesByRider, stages } = chartCtx
+    const cumAt = (rider, stage) => cumByRiderStage.get(`${rider}|${stage}`) ?? 0
 
-        svg.attr('width', width).attr('height', height)
-        svg.selectAll('*').remove()
+    const containerDiv = d3.select(el)
+    const svg = containerDiv.select('svg')
+    const width = el.clientWidth
+    const height = 200
+    const margin = { top: 24, right: 80, bottom: 24, left: 32 }
 
-        const tooltip = containerDiv.select('.tooltip')
+    svg.attr('width', width).attr('height', height)
+    svg.selectAll('*').remove()
 
-        const x = d3.scaleLinear()
-            .domain([0, d3.max(points, d => d.stage)])
-            .range([margin.left, width - margin.right])
+    const tooltip = containerDiv.select('.tooltip')
 
-        let riderData = participant.selectedRiders.map(rider => ({
-            rider,
-            values: points
-                .filter(p => p.rider_name === rider)
-                .sort((a, b) => a.stage - b.stage)
+    const x = d3.scaleLinear()
+        .domain([0, lastStage])
+        .range([margin.left, width - margin.right])
+
+    let riderData = participant.selectedRiders.map(rider => ({
+        rider,
+        values: valuesByRider.get(rider) || []
+    }))
+
+    // filter riders met 0 punten op laatste stage
+    riderData = riderData.filter(r => cumAt(r.rider, lastStage) > 0)
+
+    // sort by points at last stage
+    riderData.sort((a, b) =>
+        d3.descending(cumAt(a.rider, lastStage), cumAt(b.rider, lastStage))
+    )
+
+    const stackedData = stages.map(stage => {
+        const row = { stage }
+        riderData.forEach(r => {
+            row[r.rider] = cumAt(r.rider, stage)
+        })
+        return row
+    })
+
+    let normalizedData = stackedData
+    if (usePercent.value) {
+        normalizedData = stackedData.map(row => {
+            const total = d3.sum(riderData.map(r => row[r.rider]))
+            if (total === 0) return row
+            const newRow = { stage: row.stage }
+            riderData.forEach(r => newRow[r.rider] = row[r.rider] / total)
+            return newRow
+        })
+    }
+
+    const stack = d3.stack()
+        .keys(riderData.map(r => r.rider))
+        .order(d3.stackOrderNone)
+        .offset(d3.stackOffsetNone)
+
+    const series = stack(normalizedData)
+
+    const y = d3.scaleLinear()
+        .domain([0, usePercent.value ? 1 : d3.max(series, s => d3.max(s, d => d[1]))])
+        .range([height - margin.bottom, margin.top])
+        .nice()
+
+    const area = d3.area()
+        .x(d => x(d.data.stage))
+        .y0(d => y(d[0]))
+        .y1(d => y(d[1]))
+
+    const g = svg.append('g')
+
+    const xTickValues = stages.filter(s => s > 0 && (s % 5 === 0 || s === lastStage || s === 22))
+
+    g.append('g')
+        .attr('transform', `translate(0,${height - margin.bottom})`)
+        .attr('class', 'axis axis-x')
+        .call(d3.axisBottom(x).tickValues(xTickValues).tickFormat(x => x === 22 ? 'gc' : `s${x}`))
+
+    const tickWidth = x(lastStage) - margin.left;
+
+    g.append('g')
+        .attr('transform', `translate(${margin.left},0)`)
+        .attr("class", "axis axis-y")
+        .call(d3.axisLeft(y)
+            .ticks(4)
+            .tickSizeInner(-tickWidth)
+            .tickFormat(d => usePercent.value ? `${Math.round(d * 100)}%` : Math.round(d))
+        )
+        .call(g => g.select(".domain").remove());
+
+    // Kleurtoewijzing: top5 vaste kleuren, rest grijs
+    const color = d3.scaleOrdinal()
+        .domain(riderData.map(r => r.rider))
+        .range(riderData.map(r => {
+            const idx = top5Riders.value.indexOf(r.rider)
+            return idx >= 0 ? top5Colors[idx] : 'var(--muted-foreground)'
         }))
 
-        // filter riders met 0 punten op laatste stage
-        riderData = riderData.filter(r =>
-            r.values.some(v => v.stage === lastStage && v.cumulative_points > 0)
-        )
+    // stacked areas met tooltip
+    g.selectAll('path.area')
+        .data(series)
+        .join('path')
+        .attr('class', 'area')
+        .attr('fill', d => color(d.key))
+        .attr('d', area)
+        .attr('stroke', '#fff')
+        .attr('stroke-width', 0.5)
 
-        // sort by points at last stage
-        riderData.sort((a, b) => {
-            const aPoints = a.values[a.values.length - 1]?.cumulative_points || 0
-            const bPoints = b.values[b.values.length - 1]?.cumulative_points || 0
-            return d3.descending(aPoints, bPoints)
-        })
-
-        const actualStages = Array.from(new Set(points.map(d => d.stage))).sort((a, b) => a - b)
-        const stages = actualStages.length === 1 ? [0, ...actualStages] : actualStages
-
-        const stackedData = stages.map(stage => {
-            const row = { stage }
-            riderData.forEach(r => {
-                const p = r.values.find(v => v.stage === stage)
-                row[r.rider] = p?.cumulative_points || 0
-            })
-            return row
-        })
-
-        let normalizedData = stackedData
-        if (usePercent.value) {
-            normalizedData = stackedData.map(row => {
-                const total = d3.sum(riderData.map(r => row[r.rider]))
-                if (total === 0) return row
-                const newRow = { stage: row.stage }
-                riderData.forEach(r => newRow[r.rider] = row[r.rider] / total)
-                return newRow
-            })
+    // Rider labels bij laatste stage
+    const lastValues = series.map(s => {
+        const last = s[s.length - 1]
+        return {
+            rider: s.key,
+            y: y(last[1]),
+            points: last.data[s.key]
         }
+    })
 
-        const stack = d3.stack()
-            .keys(riderData.map(r => r.rider))
-            .order(d3.stackOrderNone)
-            .offset(d3.stackOffsetNone)
-
-        const series = stack(normalizedData)
-
-        const y = d3.scaleLinear()
-            .domain([0, usePercent.value ? 1 : d3.max(series, s => d3.max(s, d => d[1]))])
-            .range([height - margin.bottom, margin.top])
-            .nice()
-
-        const area = d3.area()
-            .x(d => x(d.data.stage))
-            .y0(d => y(d[0]))
-            .y1(d => y(d[1]))
-
-        const g = svg.append('g')
-
-        const xTickValues = stages.filter(s => s > 0 && (s % 5 === 0 || s === lastStage || s === 22))
-
-        g.append('g')
-            .attr('transform', `translate(0,${height - margin.bottom})`)
-            .attr('class', 'axis axis-x')
-            .call(d3.axisBottom(x).tickValues(xTickValues).tickFormat(x => x === 22 ? 'gc' : `s${x}`))
-
-        const tickWidth = x(lastStage) - margin.left;
-
-        g.append('g')
-            .attr('transform', `translate(${margin.left},0)`)
-            .attr("class", "axis axis-y")
-            .call(d3.axisLeft(y)
-                .ticks(4)
-                .tickSizeInner(-tickWidth)
-                .tickFormat(d => usePercent.value ? `${Math.round(d * 100)}%` : Math.round(d))
-            )
-            .call(g => g.select(".domain").remove());
-
-        // Kleurtoewijzing: top5 vaste kleuren, rest grijs
-        const color = d3.scaleOrdinal()
-            .domain(riderData.map(r => r.rider))
-            .range(riderData.map(r => {
-                const i = top5Riders.value.indexOf(r.rider)
-                return i >= 0 ? top5Colors[i] : 'var(--muted-foreground)'
-            }))
-
-        // stacked areas met tooltip
-        g.selectAll('path.area')
-            .data(series)
-            .join('path')
-            .attr('class', 'area')
-            .attr('fill', d => color(d.key))
-            .attr('d', area)
-            .attr('stroke', '#fff')
-            .attr('stroke-width', 0.5)
-
-        // Rider labels bij laatste stage
-        const lastValues = series.map(s => {
-            const last = s[s.length - 1]
-            return {
-                rider: s.key,
-                y: y(last[1]),
-                points: last.data[s.key]
-            }
-        })
-
-        lastValues.sort((a, b) => a.y - b.y)
-        const minGap = 12
-        for (let i = 1; i < lastValues.length; i++) {
-            if (lastValues[i].y - lastValues[i - 1].y < minGap) {
-                lastValues[i].y = lastValues[i - 1].y + minGap
-            }
+    lastValues.sort((a, b) => a.y - b.y)
+    const minGap = 12
+    for (let j = 1; j < lastValues.length; j++) {
+        if (lastValues[j].y - lastValues[j - 1].y < minGap) {
+            lastValues[j].y = lastValues[j - 1].y + minGap
         }
+    }
 
-        lastValues.forEach(d => {
-            g.append('text')
-                .attr('x', width - margin.right + 5)
-                .attr('y', d.y)
-                .text(`${formatRiderName(d.rider)}`)
-                .attr('font-size', '10px')
-                .attr('fill', color(d.rider))
+    lastValues.forEach(d => {
+        g.append('text')
+            .attr('x', width - margin.right + 5)
+            .attr('y', d.y)
+            .text(`${formatRiderName(d.rider)}`)
+            .attr('font-size', '10px')
+            .attr('fill', color(d.rider))
+    })
+
+    const cursorLine = g.append('line')
+        .attr('class', 'cursor-line')
+        .attr('y1', margin.top)
+        .attr('y2', height - margin.bottom)
+        .style('display', 'none');
+
+    const capture = g.append('rect')
+        .attr('class', 'event-capture')
+        .attr('x', margin.left)
+        .attr('y', margin.top)
+        .attr('width', width - margin.left - margin.right)
+        .attr('height', height - margin.top - margin.bottom)
+        .style('fill', 'none')
+        .style('pointer-events', 'all');
+
+    const stagesSorted = stages
+
+    function handleMove(event) {
+        if (event.cancelable) event.preventDefault?.();
+
+        const [mxc, myc] = d3.pointer(event, containerDiv.node());
+        const [mxs] = d3.pointer(event, svg.node());
+        const mxClamped = Math.max(margin.left, Math.min(mxs, width - margin.right));
+
+        const sx = x.invert(mxClamped);
+        const idx = d3.bisectCenter(stagesSorted, sx);
+        const stage = stagesSorted[idx];
+        if (stage == null) return;
+
+        const xStage = x(stage);
+
+        cursorLine
+            .attr('x1', xStage)
+            .attr('x2', xStage)
+            .style('display', null);
+
+        const rows = riderData.map(r => {
+            const curr = cumAt(r.rider, stage);
+            const prevStage = stagesSorted[idx - 1];
+            const prev = prevStage != null ? cumAt(r.rider, prevStage) : 0;
+            const delta = Math.max(0, curr - prev);
+            return { rider: r.rider, delta, total: curr };
         })
+            .filter(d => d.total > 0)
+            .sort((a, b) => b.total - a.total);
 
-        const cursorLine = g.append('line')
-            .attr('class', 'cursor-line')
-            .attr('y1', margin.top)
-            .attr('y2', height - margin.bottom)
-            .style('display', 'none');
-
-        const capture = g.append('rect')
-            .attr('class', 'event-capture')
-            .attr('x', margin.left)
-            .attr('y', margin.top)
-            .attr('width', width - margin.left - margin.right)
-            .attr('height', height - margin.top - margin.bottom)
-            .style('fill', 'none')
-            .style('pointer-events', 'all');
-
-        const stagesSorted = stages.slice().sort((a, b) => a - b);
-
-        function handleMove(event) {
-            if (event.cancelable) event.preventDefault?.();
-
-            const [mxc, myc] = d3.pointer(event, containerDiv.node());
-            const [mxs] = d3.pointer(event, svg.node());
-            const mxClamped = Math.max(margin.left, Math.min(mxs, width - margin.right));
-
-            const sx = x.invert(mxClamped);
-            const i = d3.bisectCenter(stagesSorted, sx);
-            const stage = stagesSorted[i];
-            if (stage == null) return;
-
-            const xStage = x(stage);
-
-            cursorLine
-                .attr('x1', xStage)
-                .attr('x2', xStage)
-                .style('display', null);
-
-            const rows = riderData.map(r => {
-                const curr = r.values.find(v => v.stage === stage)?.cumulative_points ?? 0;
-                const prevStage = stagesSorted[i - 1];
-                const prev = prevStage != null
-                    ? (r.values.find(v => v.stage === prevStage)?.cumulative_points ?? 0)
-                    : 0;
-                const delta = Math.max(0, curr - prev);
-                return { rider: r.rider, delta, total: curr };
-            })
-                .filter(d => d.total > 0)
-                .sort((a, b) => b.total - a.total);
-
-            const htmlRows = rows.length
-                ? rows.map(d => `
+        const htmlRows = rows.length
+            ? rows.map(d => `
       <tr class="tt-row">
         <td>
           <span class="tt-dot" style="background:${color(d.rider)}"></span>
@@ -340,32 +377,31 @@ function drawCharts() {
         </td>
       </tr>
     `).join('')
-                : `<tr class="tt-row"><td colspan="3" class="tt-dim">Geen punten in deze stage</td></tr>`;
+            : `<tr class="tt-row"><td colspan="3" class="tt-dim">Geen punten in deze stage</td></tr>`;
 
-            tooltip
-                .style('display', 'block')
-                .style('left', Math.min(mxc + 16, width - margin.right - 180) + 'px')
-                .style('top', Math.max(myc + 48, margin.top) + 'px')
-                .html(`
-                <div class="tt-stage">${stage === 22 ? 'Final' : `Stage ${stage}`}</div>
-                <table class="tt-table">
-                    <tbody>${htmlRows}</tbody>
-                </table>
-                `)
-        }
+        tooltip
+            .style('display', 'block')
+            .style('left', Math.min(mxc + 16, width - margin.right - 180) + 'px')
+            .style('top', Math.max(myc + 48, margin.top) + 'px')
+            .html(`
+            <div class="tt-stage">${stage === 22 ? 'Final' : `Stage ${stage}`}</div>
+            <table class="tt-table">
+                <tbody>${htmlRows}</tbody>
+            </table>
+            `)
+    }
 
-        function handleLeave() {
-            cursorLine.style('display', 'none');
-            tooltip.style('display', 'none');
-        }
+    function handleLeave() {
+        cursorLine.style('display', 'none');
+        tooltip.style('display', 'none');
+    }
 
-        capture
-            .on('mousemove', handleMove)
-            .on('mouseleave', handleLeave)
-            .on('touchstart', handleMove)
-            .on('touchmove', handleMove)
-            .on('touchend', handleLeave);
-    })
+    capture
+        .on('mousemove', handleMove)
+        .on('mouseleave', handleLeave)
+        .on('touchstart', handleMove)
+        .on('touchmove', handleMove)
+        .on('touchend', handleLeave);
 }
 </script>
 
@@ -451,6 +487,13 @@ function drawCharts() {
     border-top: 1px solid var(--primary);
     padding: 0.5rem 0;
     position: relative;
+}
+
+/* Vaste afmetingen zodat lazy geladen charts geen layout-shift veroorzaken */
+.multiple .chart {
+    display: block;
+    width: 100%;
+    height: 200px;
 }
 
 .graph-title,

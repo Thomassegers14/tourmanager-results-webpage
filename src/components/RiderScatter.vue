@@ -12,10 +12,11 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, watch, nextTick } from "vue"
+import { ref, computed, onMounted, onBeforeUnmount, watch, nextTick } from "vue"
 import { useRankingStore } from "@/stores/rankingStore"
 import { formatRiderName } from "@/config.js"
 import EmptyState from "./EmptyState.vue"
+import { debounce } from "@/utils/debounce"
 import * as d3 from "d3"
 
 const store = useRankingStore()
@@ -40,31 +41,35 @@ function prepareData() {
   // Alle punten per rider groeperen
   const riderStages = d3.group(store.points, d => d.rider_name)
 
-  const currentSelections = store.selections?.map(s => s.rider_name) || []
+  const currentSelections = new Set(store.selections?.map(s => s.rider_name) || [])
+
+  // Stage-categorieën één keer bepalen i.p.v. per renner opnieuw te filteren
+  const sprinterStages = new Set(
+    store.stages
+      .filter(s => s.profile_score <= 85 && s.vertical_m < 1500)
+      .map(s => s.stage_id)
+  )
+
+  const gcStages = new Set(
+    store.stages
+      .filter(s => s.profile_score > 100)
+      .map(s => s.stage_id)
+  )
 
   return store.favorites.map(fav => {
     const stagesForRider = riderStages.get(fav.rider_name) || []
 
     // totaalpunten laatste stage
     const totalPoints =
-      stagesForRider.find(d => d.stage === maxStage)?.cumulative_points || 0      
-
-    // filter sprinter stages
-    const sprinterStages = store.stages
-      .filter(s => s.profile_score <= 85 && s.vertical_m < 1500)
-      .map(s => s.stage_id)    
-
-    const gcStages = store.stages
-      .filter(s => s.profile_score > 100)
-      .map(s => s.stage_id)
+      stagesForRider.find(d => d.stage === maxStage)?.cumulative_points || 0
 
     const sprinterPoints = d3.sum(
-      stagesForRider.filter(d => sprinterStages.includes(d.stage_id)),
+      stagesForRider.filter(d => sprinterStages.has(d.stage_id)),
       d => d.stage_points
     )
 
     const gcPoints = d3.sum(
-      stagesForRider.filter(d => gcStages.includes(d.stage_id)),
+      stagesForRider.filter(d => gcStages.has(d.stage_id)),
       d => d.stage_points
     )
 
@@ -77,7 +82,7 @@ function prepareData() {
       points: totalPoints,                 // voor combined/classic
       sprinter_points: sprinterPoints,     // nieuwe x-as voor sprinters
       gc_points: gcPoints,                 // nieuwe x-as voor GC
-      inSelection: currentSelections.includes(fav.rider_name)
+      inSelection: currentSelections.has(fav.rider_name)
     }
   })
 }
@@ -287,17 +292,22 @@ function drawAll() {
 
 let resizeObserver
 onMounted(async () => {
-    await store.fetchStages()
-    await store.fetchSelections()
-    await store.fetchPoints()
-    await store.fetchFavorites()
+    // Parallel laden: vier seriële awaits kostten hier vier netwerk-roundtrips
+    await Promise.all([
+        store.fetchStages(),
+        store.fetchSelections(),
+        store.fetchPoints(),
+        store.fetchFavorites(),
+    ])
     loaded.value = true
     await nextTick()
     drawAll()
 
-    resizeObserver = new ResizeObserver(() => drawAll())
+    resizeObserver = new ResizeObserver(debounce(() => drawAll()))
     if (container.value) resizeObserver.observe(container.value)
 })
+
+onBeforeUnmount(() => resizeObserver?.disconnect())
 
 watch([() => store.points, () => store.stages, () => store.favorites, () => store.selections], async () => {
     await nextTick()

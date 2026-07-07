@@ -22,6 +22,7 @@
 import { ref, onMounted, onBeforeUnmount, watch, nextTick, computed } from 'vue'
 import { useRankingStore } from '@/stores/rankingStore'
 import EmptyState from './EmptyState.vue'
+import { debounce } from '@/utils/debounce'
 import * as d3 from 'd3'
 
 const container = ref(null)
@@ -31,6 +32,9 @@ const mode = ref('rank')
 const loaded = ref(false)
 
 const cellSize = 30
+
+// Animatie alleen bij de eerste draw; resize/mode-switch hertekent zonder transitie
+let animated = false
 
 // Check of data beschikbaar is
 const hasData = computed(() => store.rankings?.length > 0)
@@ -55,9 +59,9 @@ watch([() => store.rankings, mode], async () => {
   drawHeatmap()
 })
 
-function handleResize() {
+const handleResize = debounce(() => {
   if (hasData.value) drawHeatmap()
-}
+})
 
 
 function drawHeatmap() {
@@ -75,13 +79,19 @@ function drawHeatmap() {
   // Max stage uit de data
   const maxAvailableStage = d3.max(store.rankings, d => d.stage) || 1
 
+  // Eén pass over de data: lookup per rijder+stage i.p.v. geneste find()'s
+  const byRiderStage = new Map()
+  for (const r of store.rankings) {
+    byRiderStage.set(`${r.voornaam} ${r.achternaam}|${r.stage}`, r)
+  }
+
   // Unieke rijders gesorteerd op rank bij de laatste beschikbare stage
   const riders = Array.from(
     new Set(store.rankings.map(r => `${r.voornaam} ${r.achternaam}`))
   ).sort((a, b) => {
-    const entryA = store.rankings.find(r => `${r.voornaam} ${r.achternaam}` === a && r.stage === maxAvailableStage)
-    const entryB = store.rankings.find(r => `${r.voornaam} ${r.achternaam}` === b && r.stage === maxAvailableStage)
-    return (entryA?.rank ?? Infinity) - (entryB?.rank ?? Infinity)
+    const rankA = byRiderStage.get(`${a}|${maxAvailableStage}`)?.rank ?? Infinity
+    const rankB = byRiderStage.get(`${b}|${maxAvailableStage}`)?.rank ?? Infinity
+    return rankA - rankB
   })
 
   // Stage 1 t/m 22 (final gc)
@@ -152,9 +162,7 @@ function drawHeatmap() {
   const data = []
   riders.forEach((riderName, row) => {
     stages.forEach((stageNum, col) => {
-      const entry = store.rankings.find(
-        r => `${r.voornaam} ${r.achternaam}` === riderName && r.stage === stageNum
-      )
+      const entry = byRiderStage.get(`${riderName}|${stageNum}`)
       data.push({
         rider: riderName,
         stage: stageNum,
@@ -172,8 +180,16 @@ function drawHeatmap() {
 
   svgEl.selectAll('*').remove()
 
+  const cellFill = d => {
+    if (d.value === null) return 'var(--secondary)'
+    if (mode.value === 'stage_points' && d.stage === 22) {
+      return colorScale22(d.value)
+    }
+    return colorScaleStages(d.value)
+  }
+
   // Cells tekenen
-  svgEl.selectAll('rect')
+  const cells = svgEl.selectAll('rect')
     .data(data)
     .enter()
     .append('rect')
@@ -182,22 +198,9 @@ function drawHeatmap() {
     .attr('y', d => margin.top + d.row * cellSize)
     .attr('width', cellWidth)
     .attr('height', cellSize)
-    .attr('fill', 'var(--background)') // startkleur of neutraal
-    .transition()
-    .duration(800) // duur van de animatie
-    .delay(d => (d.row * 12 + d.col * 24) * 1.2)
-    .attr('fill', d => {
-      if (d.value === null) return 'var(--secondary)'
-      if (mode.value === 'stage_points' && d.stage === 22) {
-        return colorScale22(d.value)
-      }
-      return colorScaleStages(d.value)
-    })
-
-
 
   // Waarden als labels op cell
-  svgEl.selectAll('text.cell-value')
+  const cellValues = svgEl.selectAll('text.cell-value')
     .data(data)
     .enter()
     .append('text')
@@ -206,12 +209,28 @@ function drawHeatmap() {
     .attr('y', d => margin.top + d.row * cellSize + cellSize / 2)
     .attr('text-anchor', 'middle')
     .attr('alignment-baseline', 'middle')
-    .style('opacity', 0)
     .text(d => d.value === null ? '' : d.value)
-    .transition()
-    .duration(800)
-    .delay(d => (d.row + d.col) * 25)
-    .style('opacity', 1)
+
+  if (!animated) {
+    // Stagger begrensd zodat de animatie bij 40+ deelnemers niet blijft naijlen
+    cells
+      .attr('fill', 'var(--background)')
+      .transition()
+      .duration(800)
+      .delay(d => Math.min((d.row * 12 + d.col * 24) * 1.2, 900))
+      .attr('fill', cellFill)
+
+    cellValues
+      .style('opacity', 0)
+      .transition()
+      .duration(800)
+      .delay(d => Math.min((d.row + d.col) * 25, 900))
+      .style('opacity', 1)
+
+    animated = true
+  } else {
+    cells.attr('fill', cellFill)
+  }
 
   const interval = 5
   const yTicks = [1, ...Array.from({ length: Math.floor((riders.length) / interval) }, (_, i) => (i + 1) * interval)]

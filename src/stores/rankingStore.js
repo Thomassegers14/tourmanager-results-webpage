@@ -7,6 +7,9 @@ const GITHUB_RAW =
 
 const STORAGE_KEY = 'tourmanager_active_event'
 
+// Lopende fetches per dataset, zodat gelijktijdige aanroepen niet dubbel downloaden
+const inflight = {}
+
 function loadActiveEvent() {
   try {
     const saved = localStorage.getItem(STORAGE_KEY)
@@ -43,9 +46,12 @@ export const useRankingStore = defineStore('ranking', {
     selections: [],
     points: [],
     favorites: [],
-    loading: false,
+    pending: 0,
     error: null,
   }),
+  getters: {
+    loading: (state) => state.pending > 0,
+  },
   actions: {
     setEvent(event) {
       this.activeEvent = event
@@ -68,74 +74,49 @@ export const useRankingStore = defineStore('ranking', {
       ])
     },
 
+    // Laadt een dataset één keer per event: setEvent() leegt de arrays,
+    // waarna de eerstvolgende aanroep opnieuw fetcht. Gelijktijdige aanroepen
+    // (meerdere componenten op één pagina) delen dezelfde request.
+    async _load(key, url) {
+      if (this[key].length) return
+      if (inflight[key]) return inflight[key]
+      this.pending++
+      inflight[key] = (async () => {
+        try {
+          this[key] = await fetchCSV(url)
+        } catch (err) {
+          this.error = err
+        } finally {
+          this.pending--
+          delete inflight[key]
+        }
+      })()
+      return inflight[key]
+    },
+
     async fetchStages() {
-      this.loading = true
-      try {
-        const { event_id, event_year } = this.activeEvent
-        this.stages = await fetchCSV(
-          `${GITHUB_RAW}/stages/stages_${event_id}_${event_year}.csv`,
-        )
-      } catch (err) {
-        this.error = err
-      } finally {
-        this.loading = false
-      }
+      const { event_id, event_year } = this.activeEvent
+      await this._load('stages', `${GITHUB_RAW}/stages/stages_${event_id}_${event_year}.csv`)
     },
 
     async fetchRankings() {
-      this.loading = true
-      try {
-        const { event_id, event_year } = this.activeEvent
-        this.rankings = await fetchCSV(
-          `${GITHUB_RAW}/ranking/ranking_by_stage_${event_id}_${event_year}.csv`,
-        )
-      } catch (err) {
-        this.error = err
-      } finally {
-        this.loading = false
-      }
+      const { event_id, event_year } = this.activeEvent
+      await this._load('rankings', `${GITHUB_RAW}/ranking/ranking_by_stage_${event_id}_${event_year}.csv`)
     },
 
     async fetchSelections() {
-      this.loading = true
-      try {
-        const { event_id, event_year } = this.activeEvent
-        this.selections = await fetchCSV(
-          `${GITHUB_RAW}/selections/selections_${event_id}_${event_year}.csv`,
-        )
-      } catch (err) {
-        this.error = err
-      } finally {
-        this.loading = false
-      }
+      const { event_id, event_year } = this.activeEvent
+      await this._load('selections', `${GITHUB_RAW}/selections/selections_${event_id}_${event_year}.csv`)
     },
 
     async fetchPoints() {
-      this.loading = true
-      try {
-        const { event_id, event_year } = this.activeEvent
-        this.points = await fetchCSV(
-          `${GITHUB_RAW}/points/rider_stage_summary_${event_id}_${event_year}.csv`,
-        )
-      } catch (err) {
-        this.error = err
-      } finally {
-        this.loading = false
-      }
+      const { event_id, event_year } = this.activeEvent
+      await this._load('points', `${GITHUB_RAW}/points/rider_stage_summary_${event_id}_${event_year}.csv`)
     },
 
     async fetchFavorites() {
-      this.loading = true
-      try {
-        const { event_id, event_year } = this.activeEvent
-        this.favorites = await fetchCSV(
-          `${GITHUB_RAW}/startlists_favorites/startlist_${event_id}_${event_year}.csv`,
-        )
-      } catch (err) {
-        this.error = err
-      } finally {
-        this.loading = false
-      }
+      const { event_id, event_year } = this.activeEvent
+      await this._load('favorites', `${GITHUB_RAW}/startlists_favorites/startlist_${event_id}_${event_year}.csv`)
     },
   },
 })
